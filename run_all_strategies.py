@@ -61,10 +61,10 @@ class StrategyRunner:
                 total_trades = sum(1 for action in strategy.processed_data['ActionStates']
                                   if action in ['buy', 'sell'])
 
-                # 计算年化收益率
+                # 计算年化收益率（cumulative_return 已是乘数，如 1.5 = +50%，0.8 = -20%）
                 days = len(strategy.processed_data['Date'])
                 years = days / 365
-                annualized_return = (1 + cumulative_return) ** (1/years) - 1 if years > 0 else 0
+                annualized_return = cumulative_return ** (1/years) - 1 if years > 0 else 0
 
                 # 计算最大回撤
                 cumulative_returns = strategy.processed_data['CumulativeReturn']
@@ -123,7 +123,7 @@ class StrategyRunner:
                     'result': result
                 }
 
-                print(f"  累计收益率: {cumulative_return:.2%}")
+                print(f"  累计收益率: {cumulative_return - 1:.2%}")
                 print(f"  年化收益率: {annualized_return:.2%}")
                 print(f"  最大回撤: {max_drawdown:.2%}")
                 print(f"  总交易次数: {total_trades}")
@@ -268,11 +268,13 @@ class StrategyRunner:
         ]
         df = df[columns_order]
 
-        # 格式化数值列
-        numeric_cols = ['cumulative_return', 'annualized_return', 'max_drawdown', 'win_rate', 'avg_trade_return']
+        # 格式化数值列（cumulative_return 是乘数，需减 1 转为收益率）
+        numeric_cols = ['annualized_return', 'max_drawdown', 'win_rate', 'avg_trade_return']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = df[col].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+        if 'cumulative_return' in df.columns:
+            df['cumulative_return'] = df['cumulative_return'].apply(lambda x: f"{x - 1:.2%}" if pd.notnull(x) else "")
 
         # 保存到Excel
         excel_path = os.path.join(self.output_dir, "strategy_results.xlsx")
@@ -333,7 +335,7 @@ class StrategyRunner:
             <div class="summary">
                 <h2>报告摘要</h2>
                 <p>• 测试策略总数: {len(self.results)}</p>
-                <p>• 最佳累计收益率: {max(self.results, key=lambda r: r['cumulative_return'])['strategy_name']} ({max(self.results, key=lambda r: r['cumulative_return'])['cumulative_return']:.2%})</p>
+                <p>• 最佳累计收益率: {max(self.results, key=lambda r: r['cumulative_return'])['strategy_name']} ({max(self.results, key=lambda r: r['cumulative_return'])['cumulative_return'] - 1:.2%})</p>
                 <p>• 最佳年化收益率: {max(self.results, key=lambda r: r['annualized_return'])['strategy_name']} ({max(self.results, key=lambda r: r['annualized_return'])['annualized_return']:.2%})</p>
                 <p>• 图表保存位置: {os.path.join(self.output_dir, "plots")}</p>
             </div>
@@ -354,7 +356,7 @@ def main():
 
     # 创建策略运行器
     runner = StrategyRunner(
-        data_path="data/AU_T_D__SGE.parquet",
+        data_path="data/AUFI_WI.parquet",
         output_dir="results"
     )
 

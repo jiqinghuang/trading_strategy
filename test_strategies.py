@@ -8,7 +8,7 @@ def test_all_strategies():
     """测试所有可用的交易策略"""
 
     # 初始化数据处理
-    data_loader = DataHandler("data/AU_T_D__SGE.parquet", file_type='parquet')
+    data_loader = DataHandler("data/AUFI_WI.parquet", file_type='parquet')
     data_loader.preprocess_data(
         start_date=datetime(2020, 1, 1),
         end_date=datetime(2026, 4, 29)
@@ -54,7 +54,7 @@ def test_all_strategies():
                 total_trades = sum(1 for action in strategy.processed_data['ActionStates']
                                   if action in ['buy', 'sell'])
 
-                print(f"累计收益率: {cumulative_return:.2%}")
+                print(f"累计收益率: {cumulative_return - 1:.2%}")
                 print(f"总交易次数: {total_trades}")
 
                 results.append({
@@ -95,7 +95,7 @@ def test_all_strategies():
         print("\n策略表现排名:")
         for i, result in enumerate(successful_results, 1):
             print(f"{i}. {result['strategy']}:")
-            print(f"   累计收益率: {result['cumulative_return']:.2%}")
+            print(f"   累计收益率: {result['cumulative_return'] - 1:.2%}")
             print(f"   交易次数: {result['total_trades']}")
 
     # 显示失败策略
@@ -108,7 +108,7 @@ def test_all_strategies():
 def visualize_strategy(strategy_type='MACD', **kwargs):
     """可视化特定策略"""
     # 初始化数据处理
-    data_loader = DataHandler("data/AU_T_D__SGE.parquet", file_type='parquet')
+    data_loader = DataHandler("data/AUFI_WI.parquet", file_type='parquet')
     data_loader.preprocess_data(
         start_date=datetime(2020, 1, 1),
         end_date=datetime(2026, 2, 24)
