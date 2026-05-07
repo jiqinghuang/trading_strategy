@@ -8,7 +8,7 @@ from visualization import StrategyVisualizer
 if __name__ == "__main__":
     data_loader = DataHandler("data/AU_T_D__SGE.parquet", file_type="parquet")
     data_loader.preprocess_data(
-        start_date=datetime(2020, 1, 1), end_date=datetime(2026, 4, 30)
+        start_date=datetime(2020, 1, 1), end_date=datetime(2026, 5, 6)
     )
     # 初始化策略核心
     strategy = TradingStrategyCore(data_loader, strategy_type="EWMA_LONG_ONLY", span=30)
