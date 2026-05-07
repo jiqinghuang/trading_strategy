@@ -1,7 +1,3 @@
-# Data files - large binary parquet files
-# These contain market data and should be fetched separately via Wind
-data/*.parquet
-
 # Cache files
 __pycache__/
 *.pyc
@@ -22,7 +18,7 @@ env/
 *.swp
 *.swo
 
-# Results and outputs (regenerateable)
+# Results and outputs
 results/plots/
 results/*.xlsx
 results/*.html
