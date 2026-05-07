@@ -1,0 +1,40 @@
+# Data files - large binary parquet files
+# These contain market data and should be fetched separately via Wind
+data/*.parquet
+
+# Cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE settings
+.claude/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Results and outputs (regenerateable)
+results/plots/
+results/*.xlsx
+results/*.html
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak

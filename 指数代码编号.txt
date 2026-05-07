@@ -1,0 +1,16 @@
+SYMBOLS = [
+    "AFI.WI", "AGFI.WI", "ALFI.WI", "AOFI.WI", "APLFI.WI",
+    "AUFI.WI", "BCFI.WI", "BFI.WI", "BRFI.WI", "BUFI.WI",
+    "CFFI.WI", "CFI.WI", "CJFI.WI", "CSFI.WI", "CUFI.WI",
+    "CYFI.WI", "EBFI.WI", "ECFI.WI", "EGFI.WI", "FBFI.WI",
+    "FGFI.WI", "FUFI.WI", "HCFI.WI", "IFI.WI", "JDFI.WI",
+    "JFI.WI", "JMFI.WI", "LCFI.WI", "LFI.WI", "LGFI.WI",
+    "LHFI.WI", "LUFI.WI", "MAFI.WI", "MFI.WI", "NIFI.WI",
+    "NRFI.WI", "OIFI.WI", "PBFI.WI", "PFFI.WI", "PFI.WI",
+    "PGFI.WI", "PKFI.WI", "PPFI.WI", "PRFI.WI", "PSFI.WI",
+    "PXFI.WI", "RBFI.WI", "RMFI.WI", "RRFI.WI", "RSFI.WI",
+    "RUFI.WI", "SAFI.WI", "SCFI.WI", "SFFI.WI", "SHFI.WI",
+    "SIFI.WI", "SMFI.WI", "SNFI.WI", "SPFI.WI", "SRFI.WI",
+    "SSFI.WI", "TAFI.WI", "URFI.WI", "VFI.WI", "WRFI.WI",
+    "YFI.WI", "ZNFI.WI", "AU(T+D).SGE", "AG(T+D).SGE"
+    ]  # 需要获取的品种列表
