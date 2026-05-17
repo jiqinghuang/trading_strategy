@@ -6,9 +6,9 @@ from strategy_core import TradingStrategyCore
 from visualization import StrategyVisualizer
 
 if __name__ == "__main__":
-    data_loader = DataHandler("data/AUFI.WI", file_type="parquet")
+    data_loader = DataHandler("data/AUFI_WI.parquet", file_type="parquet")
     data_loader.preprocess_data(
-        start_date=datetime(2020, 1, 1), end_date=datetime(2026, 5, 6)
+        start_date=datetime(2020, 1, 1), end_date=datetime(2026, 5, 15)
     )
     # 初始化策略核心
     strategy = TradingStrategyCore(data_loader, strategy_type="EWMA_LONG_ONLY", span=30)

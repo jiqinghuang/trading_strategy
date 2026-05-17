@@ -6,16 +6,16 @@ Excel → Parquet 数据管道
 无模板文件、无残留、无跨品种串写。
 
 使用方法：
-    python excel_to_parquet.py --end 20260430
-    python excel_to_parquet.py --end 20260430 --full
-    python excel_to_parquet.py --end 20260430 -s AU(T+D).SGE
+    python excel_to_parquet.py --end 20260508
+    python excel_to_parquet.py --end 20260508 --full
+    python excel_to_parquet.py --end 20260508 -s AU(T+D).SGE
 """
 
+import argparse
+import msvcrt
 import os
 import re
 import sys
-import msvcrt
-import argparse
 from datetime import datetime, timedelta
 
 import polars as pl
@@ -27,26 +27,81 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DEFAULT_START_DATE = datetime(1990, 1, 1).date()
 
 SYMBOLS = [
-    "AFI.WI", "AGFI.WI", "ALFI.WI", "AOFI.WI", "APLFI.WI",
-    "AUFI.WI", "BCFI.WI", "BFI.WI", "BRFI.WI", "BUFI.WI",
-    "CFFI.WI", "CFI.WI", "CJFI.WI", "CSFI.WI", "CUFI.WI",
-    "CYFI.WI", "EBFI.WI", "ECFI.WI", "EGFI.WI", "FBFI.WI",
-    "FGFI.WI", "FUFI.WI", "HCFI.WI", "IFI.WI", "JDFI.WI",
-    "JFI.WI", "JMFI.WI", "LCFI.WI", "LFI.WI", "LGFI.WI",
-    "LHFI.WI", "LUFI.WI", "MAFI.WI", "MFI.WI", "NIFI.WI",
-    "NRFI.WI", "OIFI.WI", "PBFI.WI", "PFFI.WI", "PFI.WI",
-    "PGFI.WI", "PKFI.WI", "PPFI.WI", "PRFI.WI", "PSFI.WI",
-    "PXFI.WI", "RBFI.WI", "RMFI.WI", "RRFI.WI", "RSFI.WI",
-    "RUFI.WI", "SAFI.WI", "SCFI.WI", "SFFI.WI", "SHFI.WI",
-    "SIFI.WI", "SMFI.WI", "SNFI.WI", "SPFI.WI", "SRFI.WI",
-    "SSFI.WI", "TAFI.WI", "URFI.WI", "VFI.WI", "WRFI.WI",
-    "YFI.WI", "ZNFI.WI", "AU(T+D).SGE", "AG(T+D).SGE"
+    "AFI.WI",
+    "AGFI.WI",
+    "ALFI.WI",
+    "AOFI.WI",
+    "APLFI.WI",
+    "AUFI.WI",
+    "BCFI.WI",
+    "BFI.WI",
+    "BRFI.WI",
+    "BUFI.WI",
+    "CFFI.WI",
+    "CFI.WI",
+    "CJFI.WI",
+    "CSFI.WI",
+    "CUFI.WI",
+    "CYFI.WI",
+    "EBFI.WI",
+    "ECFI.WI",
+    "EGFI.WI",
+    "FBFI.WI",
+    "FGFI.WI",
+    "FUFI.WI",
+    "HCFI.WI",
+    "IFI.WI",
+    "JDFI.WI",
+    "JFI.WI",
+    "JMFI.WI",
+    "LCFI.WI",
+    "LFI.WI",
+    "LGFI.WI",
+    "LHFI.WI",
+    "LUFI.WI",
+    "MAFI.WI",
+    "MFI.WI",
+    "NIFI.WI",
+    "NRFI.WI",
+    "OIFI.WI",
+    "PBFI.WI",
+    "PFFI.WI",
+    "PFI.WI",
+    "PGFI.WI",
+    "PKFI.WI",
+    "PPFI.WI",
+    "PRFI.WI",
+    "PSFI.WI",
+    "PXFI.WI",
+    "RBFI.WI",
+    "RMFI.WI",
+    "RRFI.WI",
+    "RSFI.WI",
+    "RUFI.WI",
+    "SAFI.WI",
+    "SCFI.WI",
+    "SFFI.WI",
+    "SHFI.WI",
+    "SIFI.WI",
+    "SMFI.WI",
+    "SNFI.WI",
+    "SPFI.WI",
+    "SRFI.WI",
+    "SSFI.WI",
+    "TAFI.WI",
+    "URFI.WI",
+    "VFI.WI",
+    "WRFI.WI",
+    "YFI.WI",
+    "ZNFI.WI",
+    "AU(T+D).SGE",
+    "AG(T+D).SGE",
 ]
 
 FIELD_NAMES = ["open", "high", "low", "close", "settle", "volume", "oi", "amt"]
 FIELD_STR = ",".join(FIELD_NAMES)
-DATE_FORMAT = '%Y-%m-%d'
-DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+DATE_FORMAT = "%Y-%m-%d"
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # WSD 公式模板，写入时替换 {symbol} {start} {end}
 WSD_FORMULA = (
@@ -58,9 +113,11 @@ WSD_FORMULA = (
 
 # ---------- 路径工具 ----------
 
+
 def get_parquet_path(symbol):
-    clean = re.sub(r'[^\w]', '_', symbol)
+    clean = re.sub(r"[^\w]", "_", symbol)
     return os.path.join(DATA_DIR, f"{clean}.parquet")
+
 
 def get_last_date(symbol):
     path = get_parquet_path(symbol)
@@ -76,10 +133,13 @@ def get_last_date(symbol):
     except FileNotFoundError:
         return None
 
+
 def ensure_data_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
 
+
 # ---------- 日期解析 ----------
+
 
 def parse_end_date(date_str):
     for fmt in ("%Y%m%d", "%Y-%m-%d"):
@@ -89,7 +149,9 @@ def parse_end_date(date_str):
             continue
     raise ValueError(f"无法解析日期 '{date_str}'，支持格式: YYYYMMDD 或 YYYY-MM-DD")
 
+
 # ---------- Excel 操作 ----------
+
 
 def build_workbook(excel, symbol, start_date, end_date):
     """从零创建一个 workbook，写入品种/日期/公式，返回 worksheet"""
@@ -99,13 +161,16 @@ def build_workbook(excel, symbol, start_date, end_date):
     start = start_date.strftime(DATE_FORMAT)
     end = end_date.strftime(DATE_FORMAT)
 
-    sheet_name = f"{symbol} {start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
+    sheet_name = (
+        f"{symbol} {start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
+    )
     ws.Name = sheet_name[:31]
 
     formula = WSD_FORMULA.format(symbol=symbol, fields=FIELD_STR, start=start, end=end)
     ws.Range("B7").Formula2 = formula
 
     return wb, ws
+
 
 def read_data_range(ws):
     """从 A7:I{last_row} 读取 WSD 溢出数据，跳过非日期行"""
@@ -121,7 +186,11 @@ def read_data_range(ws):
     for row in raw:
         if row[0] is None or len(row) < 9:
             continue
-        date_str = row[0].strftime(DATE_FORMAT) if isinstance(row[0], datetime) else str(row[0])[:10]
+        date_str = (
+            row[0].strftime(DATE_FORMAT)
+            if isinstance(row[0], datetime)
+            else str(row[0])[:10]
+        )
         if not DATE_RE.match(date_str):
             continue
         vals = {}
@@ -137,6 +206,7 @@ def read_data_range(ws):
     df = df.filter(~pl.all_horizontal([pl.col(c).is_null() for c in FIELD_NAMES]))
     return df
 
+
 def print_verification(symbol, new_df, existing=None):
     """打印已有数据末尾 + 新数据，方便终端核对"""
     print()
@@ -146,44 +216,55 @@ def print_verification(symbol, new_df, existing=None):
         tail = existing.tail(22)
         print(f"--- 已有末尾 ({tail.height}行, 截止 {existing['date'][-1]}) ---")
         print(tail)
-    print(f"\n--- 新获取 ({len(new_df)}行  {new_df['date'][0]} ~ {new_df['date'][-1]}) ---")
+    print(
+        f"\n--- 新获取 ({len(new_df)}行  {new_df['date'][0]} ~ {new_df['date'][-1]}) ---"
+    )
     print(new_df)
     print()
+
 
 def merge_and_save(symbol, new_df, existing=None):
     path = get_parquet_path(symbol)
     if existing is None:
         new_df.sort("date").write_parquet(path)
     else:
-        pl.concat([existing, new_df]).unique("date", keep='last').sort("date").write_parquet(path)
+        pl.concat([existing, new_df]).unique("date", keep="last").sort(
+            "date"
+        ).write_parquet(path)
+
 
 # ---------- 交互 ----------
 
+
 class QuitPipeline(Exception):
     pass
+
 
 def wait_key():
     """阻塞等待按键，回车='read' ESC='skip' Q='quit'"""
     while True:
         k = msvcrt.getch()
-        if k == b'\r':
-            return 'read'
-        if k == b'\x1b':
-            return 'skip'
-        if k in (b'q', b'Q'):
+        if k == b"\r":
+            return "read"
+        if k == b"\x1b":
+            return "skip"
+        if k in (b"q", b"Q"):
             raise QuitPipeline
 
+
 # ---------- 主流程 ----------
+
 
 def main():
     pl.Config().set_tbl_cols(-1).set_tbl_width_chars(200)
     parser = argparse.ArgumentParser(description="Excel → Parquet 数据管道")
-    parser.add_argument("--end", type=str, required=True,
-                        help="截止日期，格式 YYYYMMDD 或 YYYY-MM-DD")
-    parser.add_argument("--full", action="store_true",
-                        help="全量重新获取（忽略已有 parquet）")
-    parser.add_argument("-s", "--symbol", type=str,
-                        help="只更新指定品种")
+    parser.add_argument(
+        "--end", type=str, required=True, help="截止日期，格式 YYYYMMDD 或 YYYY-MM-DD"
+    )
+    parser.add_argument(
+        "--full", action="store_true", help="全量重新获取（忽略已有 parquet）"
+    )
+    parser.add_argument("-s", "--symbol", type=str, help="只更新指定品种")
     args = parser.parse_args()
 
     try:
@@ -208,7 +289,7 @@ def main():
 
     try:
         for i, symbol in enumerate(targets):
-            print(f"[{i+1:2d}/{len(targets)}] {symbol:<18s}", end=" ", flush=True)
+            print(f"[{i + 1:2d}/{len(targets)}] {symbol:<18s}", end=" ", flush=True)
 
             last_date = None if args.full else get_last_date(symbol)
             if last_date and last_date >= end_date:
@@ -216,7 +297,9 @@ def main():
                 up_to_date += 1
                 continue
 
-            start_date = (last_date + timedelta(days=1)) if last_date else DEFAULT_START_DATE
+            start_date = (
+                (last_date + timedelta(days=1)) if last_date else DEFAULT_START_DATE
+            )
 
             try:
                 wb, ws = build_workbook(excel, symbol, start_date, end_date)
@@ -225,7 +308,7 @@ def main():
                 # 第一步：按键读取
                 print("回车=读取  ESC=跳过  Q=退出", end=" ", flush=True)
                 action = wait_key()
-                if action == 'skip':
+                if action == "skip":
                     print("→ 跳过")
                     wb.Close(SaveChanges=False)
                     skipped.append(symbol)
@@ -249,7 +332,7 @@ def main():
                 # 第二步：按键确认保存
                 print("回车=保存  ESC=跳过  Q=退出", end=" ", flush=True)
                 action = wait_key()
-                if action == 'skip':
+                if action == "skip":
                     print("→ 跳过")
                     skipped.append(symbol)
                     continue
@@ -274,8 +357,10 @@ def main():
         excel.Quit()
 
     total = len(targets)
-    print(f"\n{'='*50}")
-    print(f"截止日期: {end_date}  |  成功: {success}  已最新: {up_to_date}  跳过: {len(skipped)}  失败: {len(failed)}  /  共 {total}")
+    print(f"\n{'=' * 50}")
+    print(
+        f"截止日期: {end_date}  |  成功: {success}  已最新: {up_to_date}  跳过: {len(skipped)}  失败: {len(failed)}  /  共 {total}"
+    )
     if skipped:
         print("跳过品种:", ", ".join(skipped))
     if failed:

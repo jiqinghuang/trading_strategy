@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Session Startup (IMPORTANT)
+
+At the start of EVERY session (including ACP/Zed sessions), you MUST:
+1. Read `~/.claude/projects/C--Users-Jiqing-Desktop-trading-strategy/memory/MEMORY.md` to load cross-session memory
+2. Read any referenced memory files listed in MEMORY.md for full context
+3. This ensures continuity across sessions — do NOT skip this step
+
 ## Project Overview
 
 This is a quantitative trading strategy system for Chinese commodity futures markets, focusing on precious metals (AU/AG T+D) and various commodity futures indices. The system implements EWMA (Exponentially Weighted Moving Average) crossover strategies with backtesting and visualization capabilities.

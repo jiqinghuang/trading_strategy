@@ -58,8 +58,6 @@ class StrategyRunner:
             if strategy.processed_data is not None:
                 # 计算性能指标
                 cumulative_return = strategy.processed_data['CumulativeReturn'][-1]
-                total_trades = sum(1 for action in strategy.processed_data['ActionStates']
-                                  if action in ['buy', 'sell'])
 
                 # 计算年化收益率（cumulative_return 已是乘数，如 1.5 = +50%，0.8 = -20%）
                 days = len(strategy.processed_data['Date'])
@@ -72,17 +70,20 @@ class StrategyRunner:
                 drawdown = (cumulative_returns - running_max) / running_max
                 max_drawdown = np.min(drawdown)
 
-                # 计算胜率（仅做多版本）
+                # 计算交易次数（买卖各算一次）
+                total_trades = sum(1 for action in strategy.processed_data['ActionStates']
+                                  if action in ['buy', 'sell'])
+
+                # 计算胜率、平均收益（配对 buy→sell 计算）
                 if trade_df is not None and len(trade_df) > 0:
-                    # 找出所有交易
                     trades = []
-                    position = 0
-                    for i in range(1, len(trade_df)):
-                        if trade_df.iloc[i]['Action'] == 'buy' and position == 0:
+                    entry_price = None
+                    for i in range(len(trade_df)):
+                        action = trade_df.iloc[i]['Action']
+                        if action == 'buy' and entry_price is None:
                             entry_price = trade_df.iloc[i]['ExecutionPrice']
                             entry_date = trade_df.iloc[i]['Date']
-                            position = 1
-                        elif trade_df.iloc[i]['Action'] == 'sell' and position == 1:
+                        elif action == 'sell' and entry_price is not None:
                             exit_price = trade_df.iloc[i]['ExecutionPrice']
                             exit_date = trade_df.iloc[i]['Date']
                             trade_return = (exit_price - entry_price) / entry_price
@@ -91,7 +92,7 @@ class StrategyRunner:
                                 'exit_date': exit_date,
                                 'return': trade_return
                             })
-                            position = 0
+                            entry_price = None
 
                     if trades:
                         winning_trades = sum(1 for t in trades if t['return'] > 0)
