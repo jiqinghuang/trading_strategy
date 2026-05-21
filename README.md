@@ -1,7 +1,7 @@
 # Code Wiki - 量化交易策略系统
 
 > 项目路径: `c:\Users\Jiqing\Desktop\trading_strategy`
-> 文档生成日期: 2026-05-07
+> 文档生成日期: 2026-05-21
 
 ---
 
@@ -39,6 +39,7 @@ trading_strategy/
 ├── excel_to_parquet.py            # Wind 数据获取: Excel COM 管道
 ├── test_strategies.py             # 策略测试: 多策略快速对比
 ├── run_all_strategies.py          # 批量运行: 全策略回测与报告生成
+├── update_local_website.py        # 网站同步: 运行策略并更新本地网站
 ├── 指数代码编号.txt               # 品种列表配置
 └── CLAUDE.md                      # 项目开发指南 (Claude Code 上下文)
 ```
@@ -150,7 +151,7 @@ python excel_to_parquet.py --end 20260430 -s AU(T+D).SGE  # 单品种更新
 
 #### `strategy_core.py` — 策略信号生成核心
 
-系统的核心模块，实现了 **6 种交易策略**，采用统一的信号生成框架。
+系统的核心模块，实现了 **7 种交易策略**，采用统一的信号生成框架。
 
 **类: `TradingStrategyCore`**
 
@@ -337,7 +338,7 @@ python main.py
 ```
 
 默认流程:
-1. 加载 `data/AU_T_D__SGE.parquet` (2020-01-01 至 2026-04-30)
+1. 加载 `data/AUFI_WI.parquet` (最近 5 年数据)
 2. 使用 `EWMA_LONG_ONLY` 策略 (span=30)
 3. 生成交易信号
 4. 执行回测

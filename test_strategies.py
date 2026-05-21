@@ -19,10 +19,13 @@ def test_all_strategies():
         ('EWMA', {'span': 30}, "EWMA策略(允许做空)"),
         ('EWMA_LONG_ONLY', {'span': 30}, "EWMA策略(仅做多)"),
         ('MACD', {'fast_period': 12, 'slow_period': 26, 'signal_period': 9}, "MACD策略"),
-        ('DONCHIAN', {'channel_period': 20}, "唐奇安通道策略"),
-        ('BOLLINGER', {'bb_period': 20, 'bb_std': 2.0}, "布林带策略"),
+        ('DONCHIAN', {'channel_period': 20}, "唐奇安通道策略(20日)"),
+        ('DONCHIAN', {'channel_period': 50}, "唐奇安通道策略(50日)"),
+        ('BOLLINGER', {'bb_period': 20, 'bb_std': 2.0}, "布林带策略(2.0σ)"),
+        ('BOLLINGER', {'bb_period': 20, 'bb_std': 1.5}, "布林带策略(1.5σ)"),
         ('RSI', {'rsi_period': 14, 'oversold_threshold': 30, 'overbought_threshold': 70}, "RSI均值回归策略"),
-        ('TMA', {'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}, "三均线趋势策略"),
+        ('TMA', {'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}, "三均线趋势策略(5/20/60)"),
+        ('TMA', {'tma_fast': 10, 'tma_medium': 30, 'tma_slow': 90}, "三均线趋势策略(10/30/90)"),
     ]
 
     results = []

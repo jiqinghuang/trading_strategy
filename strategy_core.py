@@ -60,7 +60,7 @@ class TradingStrategyCore:
         """根据交易信号生成持仓和行动状态"""
         n = len(trading_signal)
         position = np.zeros(n)
-        action_states = np.array(['hold'] * n)
+        action_states = np.full(n, 'hold')
 
         for i, signal in enumerate(trading_signal[:-1]):
             if signal == 1:  # 买入信号
@@ -204,13 +204,15 @@ class TradingStrategyCore:
         lower_band = sma - self.bb_std * std
         bandwidth = (upper_band - lower_band) / sma  # 带宽百分比
 
-        # 生成交易信号
+        # 生成交易信号（使用前一期band避免前视偏差）
         trading_signal = np.zeros_like(close_prices)
         prev_close = self._prev(close_prices)
+        prev_lower = self._prev(lower_band)
+        prev_upper = self._prev(upper_band)
 
-        # 价格从下轨向上突破买入，从上轨向下跌破卖出
-        trading_signal[(close_prices > lower_band) & (prev_close <= lower_band)] = 1
-        trading_signal[(close_prices < upper_band) & (prev_close >= upper_band)] = -1
+        # 价格从前一期下轨向上突破买入，从前一期上轨向下跌破卖出
+        trading_signal[(close_prices > prev_lower) & (prev_close <= prev_lower)] = 1
+        trading_signal[(close_prices < prev_upper) & (prev_close >= prev_upper)] = -1
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)

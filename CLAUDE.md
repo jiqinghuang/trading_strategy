@@ -33,13 +33,19 @@ The system follows a modular pipeline architecture:
        - Uses fast/slow EMA difference and signal line crossover
        - Configurable periods: fast (default 12), slow (26), signal (9)
      - **Donchian Channels**: Breakout strategy using price channels
-       - Buys when price breaks above upper channel (N-period high)
-       - Sells when price breaks below lower channel (N-period low)
+       - Buys when price breaks above previous upper channel, sells when breaks below previous lower channel
+       - Uses prev-channel to avoid look-ahead bias
        - Configurable channel period (default 20)
      - **Bollinger Bands**: Volatility-based strategy
        - Uses moving average with standard deviation bands
-       - Buys when price breaks above lower band, sells when breaks below upper band
+       - Buys when price breaks above previous lower band, sells when breaks below previous upper band
        - Configurable: period (default 20), standard deviations (default 2.0)
+     - **RSI**: Mean-reversion strategy
+       - Buys when RSI crosses above oversold threshold, sells when crosses below overbought
+       - Configurable: period (default 14), oversold (30), overbought (70)
+     - **TMA (Triple Moving Average)**: Trend-following strategy
+       - Bullish alignment (fast > medium > slow) → buy, bearish alignment → sell
+       - Configurable: fast (default 5), medium (20), slow (60)
 
 3. **Backtesting Layer** (`backtest_engine.py`)
    - `BacktestEngine` performs historical simulation
@@ -50,16 +56,16 @@ The system follows a modular pipeline architecture:
    - `StrategyVisualizer` generates plots for price trends, signals, and performance
    - Three plot types: price/indicator, cumulative returns with signals, position holding
 
-5. **Additional Tools** (`l1_filter.py`)
-   - Implements L1 trend filtering using ADMM algorithm for signal smoothing
-   - Useful for noise reduction in price series
+5. **Additional Tools**
+   - `run_all_strategies.py`: Batch runner — executes all strategies, computes performance metrics, generates Excel + HTML reports
+   - `update_local_website.py`: Syncs results (plots, HTML) to the local website repo (`jiqinghuang.github.io`)
+   - `test_strategies.py`: Quick smoke test of all strategies with ranking
 
 ## Key Dependencies
 
 - **numpy**: Numerical computations
 - **polars**: Fast DataFrame operations (alternative to pandas)
 - **matplotlib**: Plotting and visualization
-- **tqdm**: Progress bars for iterative algorithms
 - **pywin32 + Excel**: Windows COM automation to drive Wind add-in formula calculation (required for data fetching)
 
 ## Data Structure
@@ -92,23 +98,23 @@ python excel_to_parquet.py --end 20260429 -s AU(T+D).SGE  # Single symbol
 ```
 Uses Windows COM automation to drive Excel with Wind add-in WSD formulas. Excel acts as a compute layer only — data is stored in `data/` as Parquet files.
 
-### Testing L1 Trend Filter
+### Running Full Backtest & Report
 ```bash
-python l1_filter.py
+python run_all_strategies.py
 ```
-Runs L1 trend filtering on AG(T+D) data with different lambda parameters.
+Runs all 10 strategy configurations, generates performance metrics (cumulative return, annualized return, max drawdown, win rate), saves Excel + HTML reports to `results/`.
 
-### Testing All Strategies
+### Quick Strategy Smoke Test
 ```bash
 python test_strategies.py
 ```
-Runs all implemented strategies and displays performance comparison including cumulative returns and trade counts.
+Runs all strategies and prints cumulative return ranking — quicker, no file output.
 
-### Quick Strategy Test
+### Syncing to Local Website
 ```bash
-python test_strategies.py
+python update_local_website.py
 ```
-Quick performance test showing key metrics for all strategies.
+Runs strategies → copies plots to website repo → updates `projects.html` with latest results.
 
 ### Adding New Strategies
 1. Add strategy parameter handling in `__init__` method
@@ -122,6 +128,8 @@ Quick performance test showing key metrics for all strategies.
 - **MACD**: `fast_period` (12), `slow_period` (26), `signal_period` (9)
 - **Donchian**: `channel_period` (20)
 - **Bollinger**: `bb_period` (20), `bb_std` (2.0)
+- **RSI**: `rsi_period` (14), `oversold_threshold` (30), `overbought_threshold` (70)
+- **TMA**: `tma_fast` (5), `tma_medium` (20), `tma_slow` (60)
 - **Execution price**: Default is `(open + close) / 2`, can be modified in strategy methods
 
 ### Code Structure for New Strategies
@@ -166,31 +174,31 @@ def _generate_new_strategy_signals(self):
 
 ## Strategy Performance Notes
 
-Based on backtesting AU(T+D) data from 2020-2026:
-- **EWMA_LONG_ONLY**: Highest cumulative return (~212%) with 164 trades
-- **EWMA**: Good performance (~131%) with same trade count
-- **MACD**: Moderate performance (~100%) with fewer trades (126)
-- **Donchian**: May require parameter tuning (default settings produced no signals)
-- **Bollinger**: Lower performance (~35%) with conservative signal generation
+Based on backtesting AUFI.WI (Gold Futures Index) over the last 5 years:
+- **TMA**: Top performer — TMA (5/20/60) ~158% cumulative return, ~21% annualized
+- **Donchian**: Strong and consistent — Donchian (50) ~108%, Donchian (20) ~90%
+- **EWMA_LONG_ONLY**: Solid ~107% with low drawdown
+- **EWMA**: Moderate ~68% (long-short underperforms long-only in strong bull trend)
+- **MACD**: Positive but lower returns ~8%
+- **RSI / Bollinger**: Negative returns in trending gold market — mean-reversion struggles
 
 ## Testing and Optimization Tools
 
-### `test_strategies.py`
-- Comprehensive testing of all strategies
-- Displays detailed trade records and performance metrics
-- Ranks strategies by cumulative return
+### `run_all_strategies.py`
+- Batch runs all 10 strategy configurations
+- Generates performance metrics: cumulative/annualized return, max drawdown, win rate, avg trade return
+- Outputs Excel summary, per-strategy trade sheets, HTML report, and PNG charts
 
 ### `test_strategies.py`
-- Comprehensive strategy testing with performance comparison
-- Quick test showing key metrics: cumulative return, trade count, parameters
+- Quick smoke test of all strategies
+- Prints cumulative return ranking in terminal — no file output
 
 ## Extension Points
 
-1. **New trend-following strategies**: Add RSI, ATR-based, or momentum strategies
+1. **New strategies**: Add ATR-based, momentum, or machine learning strategies
 2. **Parameter optimization**: Implement grid search or genetic algorithms for parameter tuning
 3. **Risk management**: Add stop-loss, take-profit, position sizing logic
 4. **Multi-timeframe analysis**: Combine signals from different time periods
-5. **Machine learning integration**: Use ML models for signal filtering or prediction
-6. **Performance analytics**: Add Sharpe ratio, maximum drawdown, win rate calculations
-7. **Walk-forward testing**: Implement robust out-of-sample testing methodology
-8. **Strategy combination**: Create meta-strategies that combine multiple signals
+5. **Sharpe ratio**: Add risk-adjusted return metrics
+6. **Walk-forward testing**: Implement robust out-of-sample testing methodology
+7. **Strategy combination**: Create meta-strategies that combine multiple signals

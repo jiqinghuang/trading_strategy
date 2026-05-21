@@ -1,6 +1,6 @@
 """
-一键更新：运行策略 → 更新网站 → 推送两个仓库
-用法：python update_all.py
+一键更新：运行策略 → 更新网站（仅本地同步，不推送）
+用法：python update_local_website.py
 """
 
 import os
@@ -46,7 +46,9 @@ def copy_plots():
 def update_html(results):
     """读取 Excel 结果，更新 projects.html 中的数据"""
     df = pd.read_excel(EXCEL_PATH, sheet_name="Summary")
-    df = df.sort_values("cumulative_return", ascending=False).reset_index(drop=True)
+    # 将百分比字符串转为数字再排序，避免字符串排序错误（如 "99%" 排在 "150%" 前面）
+    df["_return_num"] = df["cumulative_return"].str.strip("%").astype(float)
+    df = df.sort_values("_return_num", ascending=False).reset_index(drop=True)
 
     with open(HTML_PATH, "r", encoding="utf-8") as f:
         html = f.read()

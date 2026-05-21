@@ -51,7 +51,7 @@ class DataHandler:
                     raise ValueError(f"日期列{col}包含缺失值")
             else:
                 # 只对数值列处理NaN
-                if self.raw_data[col].dtype in (pl.Float64, pl.Float32, pl.Int64, pl.Int32):
+                if self.raw_data[col].dtype.is_numeric():
                     self.raw_data = self.raw_data.with_columns(
                         pl.col(col).fill_nan(None) # 将NaN转换为None
                                   .fill_null(strategy='forward') # 前向填充
@@ -61,25 +61,33 @@ class DataHandler:
 
         # 转换日期列为datetime类型
         self.raw_data = self.raw_data.with_columns(
-            pl.col('date').str.to_datetime()
+            pl.col('date').str.to_datetime(format="%Y-%m-%d")
         )
 
         # 获取数据中的实际日期范围
         min_date = self.raw_data['date'].min()
         max_date = self.raw_data['date'].max()
 
-        # 自动调整超出范围的日期
-        if start_date and start_date < min_date:
-            start_date = None
-        if end_date and end_date > max_date:
-            end_date = None
+        # 自动调整超出数据范围的日期
+        if start_date:
+            if start_date < min_date:
+                start_date = None
+            elif start_date > max_date:
+                raise ValueError(f"起始日期 {start_date} 超出数据范围 (最晚 {max_date})")
+        if end_date:
+            if end_date > max_date:
+                end_date = None
+            elif end_date < min_date:
+                raise ValueError(f"截止日期 {end_date} 早于数据范围 (最早 {min_date})")
 
-        # 日期范围筛选
+        # 日期范围筛选（合并为一次 filter）
         if start_date or end_date:
+            exprs = []
             if start_date:
-                self.raw_data = self.raw_data.filter(pl.col('date') >= start_date)
+                exprs.append(pl.col('date') >= start_date)
             if end_date:
-                self.raw_data = self.raw_data.filter(pl.col('date') <= end_date)
+                exprs.append(pl.col('date') <= end_date)
+            self.raw_data = self.raw_data.filter(*exprs)
 
         # 转换数据为numpy格式            
         self.dates = self.raw_data['date'].to_numpy()  # 直接使用已转换的日期列

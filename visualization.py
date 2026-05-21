@@ -22,10 +22,10 @@ class StrategyVisualizer:
             return
         dates = self.data_handler.dates
         close_prices = self.strategy.processed_data['Close']
-        ewma = self.strategy.processed_data[self.strategy.indicator_name]
+        indicator = self.strategy.processed_data[self.strategy.indicator_name]
         plt.figure(figsize=(14, 7))
         plt.plot(dates, close_prices, label='Price')
-        plt.plot(dates, ewma, label=self.strategy.indicator_name)
+        plt.plot(dates, indicator, label=self.strategy.indicator_name)
         plt.title(f'Price and {self.strategy.indicator_name} Trend')
         plt.legend()
         plt.tight_layout()

@@ -60,8 +60,11 @@ class StrategyRunner:
                 cumulative_return = strategy.processed_data['CumulativeReturn'][-1]
 
                 # 计算年化收益率（cumulative_return 已是乘数，如 1.5 = +50%，0.8 = -20%）
-                days = len(strategy.processed_data['Date'])
-                years = days / 365
+                # 用日期跨度而非交易天数，避免少算年数拉高年化
+                first_date = strategy.processed_data['Date'][0]
+                last_date = strategy.processed_data['Date'][-1]
+                days = (last_date - first_date).astype('timedelta64[D]').astype(int)
+                years = days / 365.25
                 annualized_return = cumulative_return ** (1/years) - 1 if years > 0 else 0
 
                 # 计算最大回撤
@@ -74,25 +77,47 @@ class StrategyRunner:
                 total_trades = sum(1 for action in strategy.processed_data['ActionStates']
                                   if action in ['buy', 'sell'])
 
-                # 计算胜率、平均收益（配对 buy→sell 计算）
+                # 计算胜率、平均收益（通过 position 变化配对交易）
                 if trade_df is not None and len(trade_df) > 0:
                     trades = []
                     entry_price = None
+                    entry_date = None
                     for i in range(len(trade_df)):
-                        action = trade_df.iloc[i]['Action']
-                        if action == 'buy' and entry_price is None:
-                            entry_price = trade_df.iloc[i]['ExecutionPrice']
-                            entry_date = trade_df.iloc[i]['Date']
-                        elif action == 'sell' and entry_price is not None:
-                            exit_price = trade_df.iloc[i]['ExecutionPrice']
-                            exit_date = trade_df.iloc[i]['Date']
-                            trade_return = (exit_price - entry_price) / entry_price
+                        exec_price = trade_df.iloc[i]['ExecutionPrice']
+                        cur_pos = trade_df.iloc[i]['Position']
+                        prev_pos = trade_df.iloc[i - 1]['Position'] if i > 0 else 0
+
+                        # 平多：position 从 1 变为 0 或 -1
+                        if prev_pos == 1 and cur_pos != 1 and entry_price is not None:
+                            trade_return = (exec_price - entry_price) / entry_price
                             trades.append({
                                 'entry_date': entry_date,
-                                'exit_date': exit_date,
+                                'exit_date': trade_df.iloc[i]['Date'],
+                                'type': 'long',
                                 'return': trade_return
                             })
                             entry_price = None
+
+                        # 平空：position 从 -1 变为 0 或 1
+                        if prev_pos == -1 and cur_pos != -1 and entry_price is not None:
+                            trade_return = (entry_price - exec_price) / entry_price
+                            trades.append({
+                                'entry_date': entry_date,
+                                'exit_date': trade_df.iloc[i]['Date'],
+                                'type': 'short',
+                                'return': trade_return
+                            })
+                            entry_price = None
+
+                        # 开多：position 变为 1（从 0 或 -1）
+                        if cur_pos == 1 and prev_pos != 1:
+                            entry_price = exec_price
+                            entry_date = trade_df.iloc[i]['Date']
+
+                        # 开空：position 变为 -1（从 0 或 1）
+                        if cur_pos == -1 and prev_pos != -1:
+                            entry_price = exec_price
+                            entry_date = trade_df.iloc[i]['Date']
 
                     if trades:
                         winning_trades = sum(1 for t in trades if t['return'] > 0)
