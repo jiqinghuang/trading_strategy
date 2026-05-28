@@ -19,7 +19,7 @@ WEBSITE_DIR = os.path.join(os.path.dirname(TRADING_DIR), "jiqinghuang.github.io"
 PLOTS_SRC = os.path.join(TRADING_DIR, "results", "plots")
 PLOTS_DST = os.path.join(WEBSITE_DIR, "assets", "plots")
 EXCEL_PATH = os.path.join(TRADING_DIR, "results", "strategy_results.xlsx")
-HTML_PATH = os.path.join(WEBSITE_DIR, "projects.html")
+HTML_PATH = os.path.join(WEBSITE_DIR, "project-quant-trading.html")
 
 
 def run_strategies():
