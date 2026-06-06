@@ -1,4 +1,5 @@
 from datetime import datetime
+import polars as pl
 from data_handler import DataHandler
 from strategy_core import TradingStrategyCore
 from backtest_engine import BacktestEngine
@@ -11,7 +12,10 @@ def test_all_strategies():
     data_loader = DataHandler("data/AUFI_WI.parquet", file_type='parquet')
     data_loader.preprocess_data(
         start_date=datetime(2020, 1, 1),
-        end_date=datetime(2026, 4, 29)
+        end_date=datetime.strptime(
+            pl.scan_parquet("data/AUFI_WI.parquet").select(pl.col("date").max()).collect().item(),
+            "%Y-%m-%d"
+        )
     )
 
     strategies_to_test = [
@@ -114,7 +118,10 @@ def visualize_strategy(strategy_type='MACD', **kwargs):
     data_loader = DataHandler("data/AUFI_WI.parquet", file_type='parquet')
     data_loader.preprocess_data(
         start_date=datetime(2020, 1, 1),
-        end_date=datetime(2026, 2, 24)
+        end_date=datetime.strptime(
+            pl.scan_parquet("data/AUFI_WI.parquet").select(pl.col("date").max()).collect().item(),
+            "%Y-%m-%d"
+        )
     )
 
     # 初始化策略

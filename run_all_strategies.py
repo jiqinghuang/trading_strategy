@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+import polars as pl
 from data_handler import DataHandler
 from strategy_core import TradingStrategyCore
 from backtest_engine import BacktestEngine
@@ -21,10 +22,13 @@ class StrategyRunner:
         os.makedirs(output_dir, exist_ok=True)
         os.makedirs(os.path.join(output_dir, "plots"), exist_ok=True)
 
-    def load_data(self, years=5):
+    def load_data(self):
         """加载最近N年的数据"""
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=years*365)
+        max_date_str = pl.scan_parquet(self.data_path).select(
+            pl.col("date").max()
+        ).collect().item()
+        end_date = datetime.strptime(max_date_str, "%Y-%m-%d")
+        start_date = datetime(2020, 1, 1)
 
         print(f"加载数据: {start_date.date()} 至 {end_date.date()}")
 
@@ -36,7 +40,7 @@ class StrategyRunner:
 
         return data_loader
 
-    def run_strategy(self, data_loader, strategy_type, strategy_name, **params):
+    def run_strategy(self, data_loader, strategy_type, strategy_name, display_name=None, **params):
         """运行单个策略"""
         print(f"\n运行策略: {strategy_name}")
         print(f"参数: {params}")
@@ -119,6 +123,21 @@ class StrategyRunner:
                             entry_price = exec_price
                             entry_date = trade_df.iloc[i]['Date']
 
+                    # 处理未平仓：回测结束时仍持仓，用最后一天执行价强制平仓
+                    if entry_price is not None:
+                        last_price = trade_df.iloc[-1]['ExecutionPrice']
+                        last_pos = trade_df.iloc[-1]['Position']
+                        if last_pos == 1:
+                            trade_return = (last_price - entry_price) / entry_price
+                        else:
+                            trade_return = (entry_price - last_price) / entry_price
+                        trades.append({
+                            'entry_date': entry_date,
+                            'exit_date': trade_df.iloc[-1]['Date'],
+                            'type': 'long' if last_pos == 1 else 'short',
+                            'return': trade_return
+                        })
+
                     if trades:
                         winning_trades = sum(1 for t in trades if t['return'] > 0)
                         win_rate = winning_trades / len(trades)
@@ -132,6 +151,7 @@ class StrategyRunner:
 
                 result = {
                     'strategy_name': strategy_name,
+                    'display_name': display_name or strategy_name,
                     'strategy_type': strategy_type,
                     'cumulative_return': cumulative_return,
                     'annualized_return': annualized_return,
@@ -244,33 +264,33 @@ class StrategyRunner:
 
         print(f"  图表已保存: {plot_path}")
 
-    def run_all_strategies(self, years=5):
+    def run_all_strategies(self):
         """运行所有策略"""
         print("=" * 60)
         print("开始运行所有策略")
         print("=" * 60)
 
         # 加载数据
-        data_loader = self.load_data(years=years)
+        data_loader = self.load_data()
 
         # 定义要测试的策略
         strategies = [
-            # (策略类型, 策略名称, 参数)
-            ('EWMA', 'EWMA_30', {'span': 30}),
-            ('EWMA_LONG_ONLY', 'EWMA_LONG_ONLY_30', {'span': 30}),
-            ('MACD', 'MACD_12_26_9', {'fast_period': 12, 'slow_period': 26, 'signal_period': 9}),
-            ('DONCHIAN', 'DONCHIAN_20', {'channel_period': 20}),
-            ('DONCHIAN', 'DONCHIAN_50', {'channel_period': 50}),
-            ('BOLLINGER', 'BOLLINGER_20_2', {'bb_period': 20, 'bb_std': 2.0}),
-            ('BOLLINGER', 'BOLLINGER_20_1.5', {'bb_period': 20, 'bb_std': 1.5}),
-            ('RSI', 'RSI_14_30_70', {'rsi_period': 14, 'oversold_threshold': 30, 'overbought_threshold': 70}),
-            ('TMA', 'TMA_5_20_60', {'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}),
-            ('TMA', 'TMA_10_30_90', {'tma_fast': 10, 'tma_medium': 30, 'tma_slow': 90}),
+            # (策略类型, 策略名称, 参数, 显示名称)
+            ('EWMA', 'EWMA_30', {'span': 30}, 'EWMA Long-Short'),
+            ('EWMA_LONG_ONLY', 'EWMA_LONG_ONLY_30', {'span': 30}, 'EWMA Long-Only'),
+            ('MACD', 'MACD_12_26_9', {'fast_period': 12, 'slow_period': 26, 'signal_period': 9}, 'MACD'),
+            ('DONCHIAN', 'DONCHIAN_20', {'channel_period': 20}, 'Donchian (20)'),
+            ('DONCHIAN', 'DONCHIAN_50', {'channel_period': 50}, 'Donchian (50)'),
+            ('BOLLINGER', 'BOLLINGER_20_2', {'bb_period': 20, 'bb_std': 2.0}, 'Bollinger (20, 2.0)'),
+            ('BOLLINGER', 'BOLLINGER_20_1.5', {'bb_period': 20, 'bb_std': 1.5}, 'Bollinger (20, 1.5)'),
+            ('RSI', 'RSI_14_30_70', {'rsi_period': 14, 'oversold_threshold': 30, 'overbought_threshold': 70}, 'RSI'),
+            ('TMA', 'TMA_5_20_60', {'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}, 'TMA (5/20/60)'),
+            ('TMA', 'TMA_10_30_90', {'tma_fast': 10, 'tma_medium': 30, 'tma_slow': 90}, 'TMA (10/30/90)'),
         ]
 
         # 运行所有策略
-        for strategy_type, strategy_name, params in strategies:
-            result = self.run_strategy(data_loader, strategy_type, strategy_name, **params)
+        for strategy_type, strategy_name, params, display_name in strategies:
+            result = self.run_strategy(data_loader, strategy_type, strategy_name, display_name=display_name, **params)
             if result:
                 self.results.append(result)
                 # 创建可视化
@@ -289,7 +309,7 @@ class StrategyRunner:
 
         # 重新排列列顺序
         columns_order = [
-            'strategy_name', 'strategy_type', 'cumulative_return', 'annualized_return',
+            'strategy_name', 'display_name', 'strategy_type', 'cumulative_return', 'annualized_return',
             'max_drawdown', 'total_trades', 'win_rate', 'avg_trade_return', 'parameters'
         ]
         df = df[columns_order]
@@ -387,7 +407,7 @@ def main():
     )
 
     # 运行所有策略（最近5年）
-    results = runner.run_all_strategies(years=5)
+    results = runner.run_all_strategies()
 
     if results:
         # 保存结果到Excel

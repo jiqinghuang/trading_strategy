@@ -29,3 +29,7 @@ desktop.ini
 # Temporary files
 *.tmp
 *.bak
+
+# Data and results
+data/
+results/

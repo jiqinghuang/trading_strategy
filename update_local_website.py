@@ -1,4 +1,4 @@
-"""
+﻿"""
 一键更新：运行策略 → 更新网站（仅本地同步，不推送）
 用法：python update_local_website.py
 """
@@ -28,7 +28,7 @@ def run_strategies():
     plt.rcParams["axes.unicode_minus"] = False
 
     runner = StrategyRunner(data_path="data/AUFI_WI.parquet", output_dir="results")
-    results = runner.run_all_strategies(years=5)
+    results = runner.run_all_strategies()
     if results:
         runner.save_to_excel()
     return results
@@ -43,7 +43,7 @@ def copy_plots():
     print(f"已复制图表到 {PLOTS_DST}")
 
 
-def update_html(results):
+def update_html():
     """读取 Excel 结果，更新 projects.html 中的数据"""
     df = pd.read_excel(EXCEL_PATH, sheet_name="Summary")
     # 将百分比字符串转为数字再排序，避免字符串排序错误（如 "99%" 排在 "150%" 前面）
@@ -54,29 +54,15 @@ def update_html(results):
         html = f.read()
 
     # 1. 更新最高累积收益统计
-    best_return = int(float(df.iloc[0]["cumulative_return"].strip("%")))
+    best_return = round(float(df.iloc[0]["cumulative_return"].strip("%")))
     html = re.sub(
-        r'(<div class="stat-number">)\d+(<span style="font-size:1\.2rem">%</span>)',
+        r'(<div class="stat-number">)-?\d+(<span style="font-size:1\.2rem">%</span>)',
         rf"\g<1>{best_return}\g<2>",
         html,
         count=1,
     )
 
     # 2. 更新性能表
-    # 策略名映射：文件名 → 显示名
-    name_map = {
-        "TMA_5_20_60": "TMA (5/20/60)",
-        "TMA_10_30_90": "TMA (10/30/90)",
-        "EWMA_LONG_ONLY_30": "EWMA Long-Only",
-        "EWMA_30": "EWMA Long-Short",
-        "DONCHIAN_20": "Donchian (20)",
-        "DONCHIAN_50": "Donchian (50)",
-        "MACD_12_26_9": "MACD",
-        "RSI_14_30_70": "RSI",
-        "BOLLINGER_20_2": "Bollinger (20, 2.0)",
-        "BOLLINGER_20_1.5": "Bollinger (20, 1.5)",
-    }
-
     # 类型判断：正收益用 highlight，负收益用 negative
     def cell_class(val):
         v = float(val.strip("%"))
@@ -84,7 +70,7 @@ def update_html(results):
 
     rows_html = ""
     for _, row in df.iterrows():
-        name = name_map.get(row["strategy_name"], row["strategy_name"])
+        name = row.get("display_name", row["strategy_name"])
         cum = row["cumulative_return"]
         ann = row["annualized_return"]
         dd = row["max_drawdown"]
@@ -123,11 +109,11 @@ def update_html(results):
     for _, row in df.iterrows():
         name = row["strategy_name"]
         cum = row["cumulative_return"]
-        display = name_map.get(name, name)
+        display = row.get("display_name", name)
         # 匹配 gallery-caption 中的收益数字
         pattern = (
             re.escape(display)
-            + r""" — <span data-lang="cn">累积收益 [\d.]+%</span><span data-lang="en">Cumulative Return [\d.]+%</span>"""
+            + r""" — <span data-lang="cn">累积收益 -?[\d.]+%</span><span data-lang="en">Cumulative Return -?[\d.]+%</span>"""
         )
         replacement = f'{display} — <span data-lang="cn">累积收益 {cum}</span><span data-lang="en">Cumulative Return {cum}</span>'
         html = re.sub(pattern, replacement, html)
@@ -156,7 +142,7 @@ def main():
 
     # 3. 更新 HTML
     print("\n[3/3] 更新网站数据...")
-    update_html(results)
+    update_html()
 
     print("\n" + "=" * 60)
     print("全部完成! 两个文件夹已同步更新。")
