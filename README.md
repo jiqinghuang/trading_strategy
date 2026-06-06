@@ -1,7 +1,7 @@
-# Code Wiki - 量化交易策略系统
+# 量化交易策略系统
 
 > 项目路径: `c:\Users\Jiqing\Desktop\trading_strategy`
-> 文档生成日期: 2026-05-21
+> 最后更新: 2026-06-06
 
 ---
 
@@ -484,3 +484,10 @@ def _generate_my_strategy_signals(self):
 2. **中文环境**: 可视化模块已配置 `SimHei` 字体支持中文标签
 3. **日期越界处理**: `DataHandler.preprocess_data()` 会自动将超出数据实际范围的日期裁剪为 `None`
 4. **品种代码安全转换**: `excel_to_parquet.py` 使用正则替换将品种代码中的特殊字符转为下划线生成文件名
+
+---
+
+## 11. 相关项目
+
+- **[保证金模型](https://github.com/jiqinghuang/margin_model)** — 黄金 & 白银 Wind 期货指数 VaR 保证金计算
+- **[个人网站](https://jiqinghuang.github.io/)** — 项目展示与投资专栏
