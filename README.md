@@ -71,7 +71,7 @@ trading_strategy/
                               │ Results / Records
 ┌─────────────────────────────▼───────────────────────────────┐
 │              可视化/报告层 (Visualization Layer)             │
-│  visualization.py | run_all_strategies.py                    │
+│  visualization.py | run_all_strategies.py | update_local_website.py │
 │  Matplotlib 图表 · Excel 汇总 · HTML 报告                    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -247,10 +247,10 @@ cumulative_returns = cumprod(1 + strategy_returns)
 
 | 方法 | 说明 |
 |------|------|
-| `load_data(years=5)` | 加载最近 N 年数据 |
+| `load_data()` | 加载 2020-01-01 至最新日期的数据 |
 | `run_strategy(...)` | 运行单个策略，计算累计收益、年化收益、最大回撤、胜率等 |
 | `create_visualization(...)` | 生成三合一图表并保存为 PNG |
-| `run_all_strategies(years=5)` | 批量运行预定义策略列表 |
+| `run_all_strategies()` | 批量运行预定义策略列表 |
 | `save_to_excel()` | 保存汇总结果与详细交易记录到 Excel |
 | `create_html_report(df)` | 生成 HTML 格式报告 |
 
@@ -272,6 +272,41 @@ cumulative_returns = cumprod(1 + strategy_returns)
 |------|------|
 | `test_all_strategies()` | 遍历运行所有策略，打印累计收益与交易次数，按收益排名 |
 | `visualize_strategy(strategy_type, **kwargs)` | 可视化单个策略结果 |
+
+---
+
+#### `update_local_website.py` — 网站同步工具
+
+一键运行策略并将结果同步到本地个人网站仓库（`jiqinghuang.github.io`），仅本地文件复制，不自动推送 Git。
+
+**路径配置:**
+
+| 常量 | 说明 |
+|------|------|
+| `TRADING_DIR` | 本项目根目录 |
+| `WEBSITE_DIR` | 网站仓库路径 (`../jiqinghuang.github.io`) |
+| `PLOTS_SRC` | 源图表目录 (`results/plots`) |
+| `PLOTS_DST` | 目标图表目录 (`website/assets/plots`) |
+| `HTML_PATH` | 网站 HTML 文件 (`project-quant-trading.html`) |
+
+**核心函数:**
+
+| 函数 | 职责 |
+|------|------|
+| `run_strategies()` | 调用 `StrategyRunner` 运行所有策略并保存 Excel/HTML |
+| `copy_plots()` | 将 `results/plots/*.png` 复制到网站 `assets/plots/` |
+| `update_html()` | 读取 Excel 结果，用正则替换更新网站 HTML 中的统计数据、性能表和图片说明 |
+| `main()` | 三步流水线入口：运行策略 → 复制图表 → 更新 HTML |
+
+**HTML 更新逻辑:**
+1. 更新顶部最高累计收益统计数字
+2. 替换性能汇总表格（按累计收益降序排列）
+3. 更新图片画廊中的收益说明文字（中英文双语）
+
+**CLI 用法:**
+```bash
+python update_local_website.py
+```
 
 ---
 
@@ -298,7 +333,8 @@ test_strategies.py
 ├── data_handler.py
 ├── strategy_core.py
 ├── backtest_engine.py
-└── visualization.py
+├── visualization.py
+└── polars
 
 run_all_strategies.py
 ├── data_handler.py
@@ -307,6 +343,7 @@ run_all_strategies.py
 ├── visualization.py
 ├── pandas
 ├── numpy
+├── polars
 └── matplotlib
 ```
 
@@ -338,7 +375,7 @@ python main.py
 ```
 
 默认流程:
-1. 加载 `data/AUFI_WI.parquet` (最近 5 年数据)
+1. 加载 `data/AUFI_WI.parquet` (2020-01-01 至最新日期)
 2. 使用 `EWMA_LONG_ONLY` 策略 (span=30)
 3. 生成交易信号
 4. 执行回测
@@ -351,7 +388,7 @@ python main.py
 python test_strategies.py
 ```
 
-运行所有 7 种策略，输出累计收益率与交易次数排名。
+运行 10 组策略配置，输出累计收益率与交易次数排名。
 
 ### 6.3 批量回测与报告
 
