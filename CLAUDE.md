@@ -92,9 +92,9 @@ This executes the complete pipeline: data loading → strategy signals → backt
 
 ### Fetching Data from Wind (via Excel COM)
 ```bash
-python excel_to_parquet.py --end 20260429        # Incremental update all symbols
-python excel_to_parquet.py --end 20260429 --full  # Full refresh
-python excel_to_parquet.py --end 20260429 -s AU(T+D).SGE  # Single symbol
+python excel_to_parquet.py --end 20260613        # Incremental update all symbols
+python excel_to_parquet.py --end 20260613 --full  # Full refresh
+python excel_to_parquet.py --end 20260613 -s AU(T+D).SGE  # Single symbol
 ```
 Uses Windows COM automation to drive Excel with Wind add-in WSD formulas. Excel acts as a compute layer only — data is stored in `data/` as Parquet files.
 
@@ -174,13 +174,13 @@ def _generate_new_strategy_signals(self):
 
 ## Strategy Performance Notes
 
-Based on backtesting AUFI.WI (Gold Futures Index) over the last 5 years:
-- **TMA**: Top performer — TMA (5/20/60) ~158% cumulative return, ~21% annualized
-- **Donchian**: Strong and consistent — Donchian (50) ~108%, Donchian (20) ~90%
-- **EWMA_LONG_ONLY**: Solid ~107% with low drawdown
-- **EWMA**: Moderate ~68% (long-short underperforms long-only in strong bull trend)
-- **MACD**: Positive but lower returns ~8%
-- **RSI / Bollinger**: Negative returns in trending gold market — mean-reversion struggles
+Based on backtesting AUFI.WI (Gold Futures Index) over the last 5 years (as of 2026-06-13):
+- **TMA**: Top performers — TMA (10/30/90) ~177% cumulative return (~17% annualized), TMA (5/20/60) ~158% (~16% annualized)
+- **EWMA_LONG_ONLY**: Solid ~115% cumulative return (~13% annualized) with moderate drawdown
+- **Donchian**: Consistent — Donchian (50) ~83%, Donchian (20) ~83%
+- **EWMA**: Moderate ~73% — long-short underperforms long-only in strong gold bull trend
+- **MACD**: Positive but modest ~19% cumulative return
+- **RSI / Bollinger**: Deeply negative returns (~-40% to -68%) — mean-reversion strategies struggle in persistent gold uptrend
 
 ## Testing and Optimization Tools
 

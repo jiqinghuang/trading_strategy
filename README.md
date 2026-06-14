@@ -1,7 +1,7 @@
 # 量化交易策略系统
 
 > 项目路径: `c:\Users\Jiqing\Desktop\trading_strategy`
-> 最后更新: 2026-06-06
+> 最后更新: 2026-06-13
 
 ---
 
@@ -108,9 +108,9 @@ trading_strategy/
 
 **CLI 用法:**
 ```bash
-python excel_to_parquet.py --end 20260430           # 增量更新全部品种
-python excel_to_parquet.py --end 20260430 --full    # 全量刷新
-python excel_to_parquet.py --end 20260430 -s AU(T+D).SGE  # 单品种更新
+python excel_to_parquet.py --end 20260613           # 增量更新全部品种
+python excel_to_parquet.py --end 20260613 --full    # 全量刷新
+python excel_to_parquet.py --end 20260613 -s AU(T+D).SGE  # 单品种更新
 ```
 
 **交互按键:**
@@ -405,13 +405,13 @@ python run_all_strategies.py
 
 ```bash
 # 增量更新全部品种
-python excel_to_parquet.py --end 20260430
+python excel_to_parquet.py --end 20260613
 
 # 全量刷新
-python excel_to_parquet.py --end 20260430 --full
+python excel_to_parquet.py --end 20260613 --full
 
 # 单品种更新
-python excel_to_parquet.py --end 20260430 -s AU(T+D).SGE
+python excel_to_parquet.py --end 20260613 -s AU(T+D).SGE
 ```
 
 ---
