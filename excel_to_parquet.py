@@ -196,7 +196,15 @@ def read_data_range(ws):
         vals = {}
         for i, name in enumerate(FIELD_NAMES):
             v = row[i + 1]
-            vals[name] = float(v) if v is not None else None
+            if v is None:
+                vals[name] = None
+            else:
+                try:
+                    vals[name] = float(v)
+                except (ValueError, TypeError):
+                    # Wind WSD 可能返回 '#N/A'、'#ERROR'、'Err'、'NA' 等错误字符串
+                    # （停牌、非交易日、数据缺口）；视为缺失而非让整个品种失败
+                    vals[name] = None
         rows.append({"date": date_str, **vals})
 
     if not rows:

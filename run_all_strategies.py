@@ -77,75 +77,15 @@ class StrategyRunner:
                 drawdown = (cumulative_returns - running_max) / running_max
                 max_drawdown = np.min(drawdown)
 
-                # 计算交易次数（买卖各算一次）
-                total_trades = sum(1 for action in strategy.processed_data['ActionStates']
-                                  if action in ['buy', 'sell'])
-
-                # 计算胜率、平均收益（通过 position 变化配对交易）
-                if trade_df is not None and len(trade_df) > 0:
-                    trades = []
-                    entry_price = None
-                    entry_date = None
-                    for i in range(len(trade_df)):
-                        exec_price = trade_df.iloc[i]['ExecutionPrice']
-                        cur_pos = trade_df.iloc[i]['Position']
-                        prev_pos = trade_df.iloc[i - 1]['Position'] if i > 0 else 0
-
-                        # 平多：position 从 1 变为 0 或 -1
-                        if prev_pos == 1 and cur_pos != 1 and entry_price is not None:
-                            trade_return = (exec_price - entry_price) / entry_price
-                            trades.append({
-                                'entry_date': entry_date,
-                                'exit_date': trade_df.iloc[i]['Date'],
-                                'type': 'long',
-                                'return': trade_return
-                            })
-                            entry_price = None
-
-                        # 平空：position 从 -1 变为 0 或 1
-                        if prev_pos == -1 and cur_pos != -1 and entry_price is not None:
-                            trade_return = (entry_price - exec_price) / entry_price
-                            trades.append({
-                                'entry_date': entry_date,
-                                'exit_date': trade_df.iloc[i]['Date'],
-                                'type': 'short',
-                                'return': trade_return
-                            })
-                            entry_price = None
-
-                        # 开多：position 变为 1（从 0 或 -1）
-                        if cur_pos == 1 and prev_pos != 1:
-                            entry_price = exec_price
-                            entry_date = trade_df.iloc[i]['Date']
-
-                        # 开空：position 变为 -1（从 0 或 1）
-                        if cur_pos == -1 and prev_pos != -1:
-                            entry_price = exec_price
-                            entry_date = trade_df.iloc[i]['Date']
-
-                    # 处理未平仓：回测结束时仍持仓，用最后一天执行价强制平仓
-                    if entry_price is not None:
-                        last_price = trade_df.iloc[-1]['ExecutionPrice']
-                        last_pos = trade_df.iloc[-1]['Position']
-                        if last_pos == 1:
-                            trade_return = (last_price - entry_price) / entry_price
-                        else:
-                            trade_return = (entry_price - last_price) / entry_price
-                        trades.append({
-                            'entry_date': entry_date,
-                            'exit_date': trade_df.iloc[-1]['Date'],
-                            'type': 'long' if last_pos == 1 else 'short',
-                            'return': trade_return
-                        })
-
-                    if trades:
-                        winning_trades = sum(1 for t in trades if t['return'] > 0)
-                        win_rate = winning_trades / len(trades)
-                        avg_return = np.mean([t['return'] for t in trades])
-                    else:
-                        win_rate = 0
-                        avg_return = 0
+                # 计算交易次数、胜率、平均收益（统一基于配对交易 round trip）
+                trades_df = backtester.get_trades()
+                if trades_df is not None and len(trades_df) > 0:
+                    total_trades = len(trades_df)
+                    winning_trades = (trades_df['return'] > 0).sum()
+                    win_rate = winning_trades / total_trades
+                    avg_return = trades_df['return'].mean()
                 else:
+                    total_trades = 0
                     win_rate = 0
                     avg_return = 0
 

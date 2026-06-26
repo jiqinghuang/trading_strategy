@@ -57,23 +57,33 @@ class TradingStrategyCore:
         return prev
 
     def _generate_position_from_signals(self, trading_signal, allow_short=True):
-        """根据交易信号生成持仓和行动状态"""
+        """根据交易信号生成持仓和行动状态
+
+        信号语义：+1 表示进入多头，-1 表示进入空头（仅做多模式下平多）。
+        若新信号与当前仓位方向相同（如强趋势中连续上破），仓位不发生变化，
+        此时不写入 buy/sell 标签——避免统计出无实际仓位变动的"幻影交易"。
+        """
         n = len(trading_signal)
         position = np.zeros(n)
         action_states = np.full(n, 'hold')
 
         for i, signal in enumerate(trading_signal[:-1]):
-            if signal == 1:  # 买入信号
-                position[i+1] = 1
-                action_states[i+1] = 'buy'
-            elif signal == -1:  # 卖出信号
-                if allow_short:
-                    position[i+1] = -1
-                else:
-                    position[i+1] = 0  # 仅做多时卖出平仓
-                action_states[i+1] = 'sell'
+            if signal == 1:  # 买入信号 -> 目标多头
+                target = 1
+                action = 'buy'
+            elif signal == -1:  # 卖出信号 -> 目标空头(多空)或平仓(仅做多)
+                target = -1 if allow_short else 0
+                action = 'sell'
             else:
                 position[i+1] = position[i]  # 保持原有持仓
+                continue
+
+            # 仅当仓位实际变化时才记录交易动作，否则视为重复信号忽略
+            if position[i] != target:
+                position[i+1] = target
+                action_states[i+1] = action
+            else:
+                position[i+1] = position[i]
 
         return position, action_states
 
@@ -222,6 +232,13 @@ class TradingStrategyCore:
 
     def _calculate_rsi(self, prices, period):
         """计算RSI指标"""
+        if period <= 0:
+            raise ValueError(f"RSI 周期必须为正整数，收到 {period}")
+        if len(prices) <= period:
+            raise ValueError(
+                f"RSI 计算需要至少 {period + 1} 个价格点（周期 {period} + 1），"
+                f"当前数据仅 {len(prices)} 个，请放宽日期范围或缩短周期"
+            )
         deltas = np.diff(prices)
         gains = np.where(deltas > 0, deltas, 0)
         losses = np.where(deltas < 0, -deltas, 0)

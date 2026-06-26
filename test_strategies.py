@@ -58,8 +58,8 @@ def test_all_strategies():
             # 计算基本统计
             if strategy.processed_data is not None:
                 cumulative_return = strategy.processed_data['CumulativeReturn'][-1]
-                total_trades = sum(1 for action in strategy.processed_data['ActionStates']
-                                  if action in ['buy', 'sell'])
+                trades_df = backtester.get_trades()
+                total_trades = len(trades_df) if trades_df is not None else 0
 
                 print(f"累计收益率: {cumulative_return - 1:.2%}")
                 print(f"总交易次数: {total_trades}")

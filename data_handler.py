@@ -43,6 +43,10 @@ class DataHandler:
             start_date (datetime.date): 起始日期(可选)
             end_date (datetime.date): 结束日期(可选)
         """
+        # 价格列不允许被 0 填充（0 价格会让收益除 0、EMA 被拉向 0、突破信号误触发）；
+        # 成交量/持仓量/金额等缺失视为 0 是合理的。
+        PRICE_COLS = {'open', 'high', 'low', 'close', 'settle'}
+
         # 检查并处理缺失值和NaN
         for col in self.raw_data.columns:
             if col == 'date':
@@ -50,13 +54,30 @@ class DataHandler:
                 if self.raw_data[col].is_null().any():
                     raise ValueError(f"日期列{col}包含缺失值")
             else:
+                # 价格列必须是数值类型；全空列会被 polars 推断为 Null dtype，
+                # is_numeric() 为 False，会跳过填充逻辑而静默变成 nan，需显式拦截
+                if col in PRICE_COLS and not self.raw_data[col].dtype.is_numeric():
+                    raise ValueError(
+                        f"价格列 {col} 不是数值类型（dtype={self.raw_data[col].dtype}），"
+                        f"可能整列为空。无法安全用于回测，请检查数据源。"
+                    )
                 # 只对数值列处理NaN
                 if self.raw_data[col].dtype.is_numeric():
+                    # 先前向/后向填充
                     self.raw_data = self.raw_data.with_columns(
                         pl.col(col).fill_nan(None) # 将NaN转换为None
                                   .fill_null(strategy='forward') # 前向填充
                                   .fill_null(strategy='backward') # 后向填充
-                                  .fill_null(0) # 最后将剩余的NaN填充为0
+                    )
+                    # 价格列若仍有缺失（整列无有效值或首尾缺口无法覆盖），报错而非注入 0
+                    if col in PRICE_COLS and self.raw_data[col].is_null().any():
+                        raise ValueError(
+                            f"价格列 {col} 在前后向填充后仍存在缺失值，"
+                            f"无法用 0 安全填充（会污染收益计算）。请检查数据源。"
+                        )
+                    # 非价格列剩余缺失值填充为 0
+                    self.raw_data = self.raw_data.with_columns(
+                        pl.col(col).fill_null(0)
                     )
 
         # 转换日期列为datetime类型
