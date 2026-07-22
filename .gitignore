@@ -31,5 +31,8 @@ desktop.ini
 *.bak
 
 # Data and results
+# data/ and most of results/ are large binaries (Wind parquet, plots, xlsx) — keep out of git.
+# Exception: the rendered HTML report is lightweight and worth versioning.
 data/
-results/
+results/*
+!results/strategy_report.html
