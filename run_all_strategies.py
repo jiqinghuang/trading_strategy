@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -9,18 +10,29 @@ from strategy_core import TradingStrategyCore
 from backtest_engine import BacktestEngine
 from visualization import StrategyVisualizer
 
+_BASE_DIR = Path(__file__).resolve().parent
+
+
 class StrategyRunner:
     """运行所有策略并保存结果"""
 
     def __init__(self, data_path, output_dir="results"):
-        self.data_path = data_path
-        self.output_dir = output_dir
+        self.data_path = Path(data_path).expanduser()
+        if not self.data_path.is_absolute():
+            self.data_path = _BASE_DIR / self.data_path
+        self.data_path = self.data_path.resolve()
+
+        self.output_dir = Path(output_dir).expanduser()
+        if not self.output_dir.is_absolute():
+            self.output_dir = _BASE_DIR / self.output_dir
+        self.output_dir = self.output_dir.resolve()
+
         self.results = []
         self.strategy_data = {}
 
         # 创建输出目录
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(os.path.join(output_dir, "plots"), exist_ok=True)
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.output_dir / "plots", exist_ok=True)
 
     def load_data(self):
         """加载最近N年的数据"""
@@ -65,17 +77,29 @@ class StrategyRunner:
 
                 # 计算年化收益率（cumulative_return 已是乘数，如 1.5 = +50%，0.8 = -20%）
                 # 用日期跨度而非交易天数，避免少算年数拉高年化
+                # 权益乘数 ≤ 0 时（空头单日亏超 100% 等）幂运算会出复数，记为 NaN
                 first_date = strategy.processed_data['Date'][0]
                 last_date = strategy.processed_data['Date'][-1]
                 days = (last_date - first_date).astype('timedelta64[D]').astype(int)
                 years = days / 365.25
-                annualized_return = cumulative_return ** (1/years) - 1 if years > 0 else 0
+                if years > 0 and cumulative_return > 0:
+                    annualized_return = cumulative_return ** (1 / years) - 1
+                else:
+                    annualized_return = float('nan')
 
-                # 计算最大回撤
+                # 计算最大回撤；峰值 ≤ 0 时跳过除法，避免 -inf/NaN 污染
                 cumulative_returns = strategy.processed_data['CumulativeReturn']
                 running_max = np.maximum.accumulate(cumulative_returns)
-                drawdown = (cumulative_returns - running_max) / running_max
-                max_drawdown = np.min(drawdown)
+                valid_peak = running_max > 0
+                if np.any(valid_peak):
+                    drawdown = np.full(len(cumulative_returns), np.nan, dtype=float)
+                    drawdown[valid_peak] = (
+                        (cumulative_returns[valid_peak] - running_max[valid_peak])
+                        / running_max[valid_peak]
+                    )
+                    max_drawdown = float(np.nanmin(drawdown))
+                else:
+                    max_drawdown = float('nan')
 
                 # 计算交易次数、胜率、平均收益（统一基于配对交易 round trip）
                 trades_df = backtester.get_trades()
@@ -131,77 +155,16 @@ class StrategyRunner:
 
         data = self.strategy_data[strategy_name]
         processed = data['processed_data']
-        adapter = type('_Adapter', (), {
-            'processed_data': processed,
-            'indicator_name': next(k for k in processed
-                if k not in ('Date', 'Close', 'ExecutionPrice', 'TradingSignal',
-                             'Position', 'ActionStates', 'Return', 'StrategyReturn',
-                             'CumulativeReturn'))
-        })()
+        # Provide data and strategy type for indicator-axis handling.
+        from types import SimpleNamespace
+        adapter = SimpleNamespace(
+            processed_data=processed,
+            strategy_type=data['result']['strategy_type'],
+        )
 
         visualizer = StrategyVisualizer(adapter, data_loader)
-
-        # 创建自定义图表
-        fig, axes = plt.subplots(3, 1, figsize=(14, 12))
-
-        # 1. 价格和指标图
-        dates = data_loader.dates
-        close_prices = data['processed_data']['Close']
-
-        # 获取指标数据
-        indicator_keys = [k for k in data['processed_data'].keys()
-                         if k not in ['Date', 'Close', 'ExecutionPrice', 'TradingSignal',
-                                     'Position', 'ActionStates', 'Return', 'StrategyReturn', 'CumulativeReturn']]
-
-        ax1 = axes[0]
-        ax1.plot(dates, close_prices, label='Price', color='black', linewidth=1)
-
-        for key in indicator_keys:
-            if key in data['processed_data']:
-                ax1.plot(dates, data['processed_data'][key], label=key, linewidth=2)
-
-        # 标记交易信号
-        action_states = data['processed_data']['ActionStates']
-        buy_mask = action_states == 'buy'
-        sell_mask = action_states == 'sell'
-
-        ax1.scatter(dates[buy_mask], close_prices[buy_mask],
-                   marker='^', color='green', s=100, label='Buy', zorder=5)
-        ax1.scatter(dates[sell_mask], close_prices[sell_mask],
-                   marker='v', color='red', s=100, label='Sell', zorder=5)
-
-        ax1.set_title(f'{strategy_name} - Price and Indicators')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-
-        # 2. 累计收益图
-        ax2 = axes[1]
-        cumulative_returns = data['processed_data']['CumulativeReturn']
-        ax2.plot(dates, cumulative_returns, label='Cumulative Return', color='blue', linewidth=2)
-        ax2.axhline(y=1, color='gray', linestyle='--', alpha=0.5)
-        ax2.set_title('Cumulative Returns')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-
-        # 3. 持仓图
-        ax3 = axes[2]
-        position = data['processed_data']['Position']
-        ax3.fill_between(dates, 0, position, where=position>=0,
-                        color='green', alpha=0.3, label='Long')
-        ax3.fill_between(dates, 0, position, where=position<0,
-                        color='red', alpha=0.3, label='Short')
-        ax3.axhline(y=0, color='black', linewidth=0.5)
-        ax3.set_title('Position')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        # 保存图片
-        plot_path = os.path.join(self.output_dir, "plots", f"{strategy_name}.png")
-        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-        plt.close()
-
+        plot_path = self.output_dir / "plots" / f"{strategy_name}.png"
+        visualizer.plot_results(save_path=plot_path, show=False, title=strategy_name)
         print(f"  图表已保存: {plot_path}")
 
     def run_all_strategies(self):
@@ -291,7 +254,42 @@ class StrategyRunner:
 
     def create_html_report(self, df):
         """创建HTML格式的报告"""
-        html_path = os.path.join(self.output_dir, "strategy_report.html")
+        html_path = self.output_dir / "strategy_report.html"
+        plot_dir = self.output_dir / "plots"
+        try:
+            plot_dir_display = plot_dir.relative_to(_BASE_DIR).as_posix()
+        except ValueError:
+            plot_dir_display = plot_dir.name + "/"
+
+        finite_cumulative = [
+            result for result in self.results
+            if np.isfinite(result['cumulative_return'])
+        ]
+        best_cumulative = max(
+            finite_cumulative,
+            key=lambda result: result['cumulative_return'],
+            default=None,
+        )
+        best_cumulative_text = (
+            f"{best_cumulative['strategy_name']} "
+            f"({best_cumulative['cumulative_return'] - 1:.2%})"
+            if best_cumulative is not None else "N/A"
+        )
+
+        finite_annualized = [
+            result for result in self.results
+            if np.isfinite(result['annualized_return'])
+        ]
+        best_annualized = max(
+            finite_annualized,
+            key=lambda result: result['annualized_return'],
+            default=None,
+        )
+        best_annualized_text = (
+            f"{best_annualized['strategy_name']} "
+            f"({best_annualized['annualized_return']:.2%})"
+            if best_annualized is not None else "N/A"
+        )
 
         html_content = f"""
         <!DOCTYPE html>
@@ -321,9 +319,9 @@ class StrategyRunner:
             <div class="summary">
                 <h2>报告摘要</h2>
                 <p>• 测试策略总数: {len(self.results)}</p>
-                <p>• 最佳累计收益率: {max(self.results, key=lambda r: r['cumulative_return'])['strategy_name']} ({max(self.results, key=lambda r: r['cumulative_return'])['cumulative_return'] - 1:.2%})</p>
-                <p>• 最佳年化收益率: {max(self.results, key=lambda r: r['annualized_return'])['strategy_name']} ({max(self.results, key=lambda r: r['annualized_return'])['annualized_return']:.2%})</p>
-                <p>• 图表保存位置: {os.path.join(self.output_dir, "plots")}</p>
+                <p>• 最佳累计收益率: {best_cumulative_text}</p>
+                <p>• 最佳年化收益率: {best_annualized_text}</p>
+                <p>• 图表保存位置: {plot_dir_display}</p>
             </div>
         </body>
         </html>
@@ -342,8 +340,8 @@ def main():
 
     # 创建策略运行器
     runner = StrategyRunner(
-        data_path="data/AUFI_WI.parquet",
-        output_dir="results"
+        data_path=_BASE_DIR / "data" / "AUFI_WI.parquet",
+        output_dir=_BASE_DIR / "results"
     )
 
     # 运行所有策略（最近5年）
@@ -357,8 +355,8 @@ def main():
         print("策略运行完成!")
         print("=" * 60)
         print(f"结果文件: {excel_path}")
-        print(f"图表目录: {os.path.join('results', 'plots')}")
-        print(f"HTML报告: {os.path.join('results', 'strategy_report.html')}")
+        print(f"图表目录: {runner.output_dir / 'plots'}")
+        print(f"HTML报告: {runner.output_dir / 'strategy_report.html'}")
     else:
         print("没有成功运行的策略")
 

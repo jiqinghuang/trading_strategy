@@ -3,6 +3,7 @@
 用法：python update_local_website.py
 """
 
+from pathlib import Path
 import os
 import re
 import shutil
@@ -14,12 +15,12 @@ import pandas as pd
 from run_all_strategies import StrategyRunner
 
 # 路径配置
-TRADING_DIR = os.path.dirname(os.path.abspath(__file__))
-WEBSITE_DIR = os.path.join(os.path.dirname(TRADING_DIR), "jiqinghuang.github.io")
-PLOTS_SRC = os.path.join(TRADING_DIR, "results", "plots")
-PLOTS_DST = os.path.join(WEBSITE_DIR, "assets", "plots")
-EXCEL_PATH = os.path.join(TRADING_DIR, "results", "strategy_results.xlsx")
-HTML_PATH = os.path.join(WEBSITE_DIR, "project-quant-trading.html")
+TRADING_DIR = Path(__file__).resolve().parent
+WEBSITE_DIR = TRADING_DIR.parent / "jiqinghuang.github.io"
+PLOTS_SRC = TRADING_DIR / "results" / "plots"
+PLOTS_DST = WEBSITE_DIR / "assets" / "plots"
+EXCEL_PATH = TRADING_DIR / "results" / "strategy_results.xlsx"
+HTML_PATH = WEBSITE_DIR / "project-quant-trading.html"
 
 
 def run_strategies():
@@ -27,7 +28,7 @@ def run_strategies():
     plt.rcParams["font.sans-serif"] = ["SimHei"]
     plt.rcParams["axes.unicode_minus"] = False
 
-    runner = StrategyRunner(data_path="data/AUFI_WI.parquet", output_dir="results")
+    runner = StrategyRunner(data_path=str(TRADING_DIR / "data" / "AUFI_WI.parquet"), output_dir=str(TRADING_DIR / "results"))
     results = runner.run_all_strategies()
     if results:
         runner.save_to_excel()
@@ -36,10 +37,9 @@ def run_strategies():
 
 def copy_plots():
     """将图表复制到网站目录"""
-    os.makedirs(PLOTS_DST, exist_ok=True)
-    for f in os.listdir(PLOTS_SRC):
-        if f.endswith(".png"):
-            shutil.copy2(os.path.join(PLOTS_SRC, f), os.path.join(PLOTS_DST, f))
+    PLOTS_DST.mkdir(parents=True, exist_ok=True)
+    for f in PLOTS_SRC.glob("*.png"):
+        shutil.copy2(f, PLOTS_DST / f.name)
     print(f"已复制图表到 {PLOTS_DST}")
 
 
@@ -105,18 +105,33 @@ def update_html():
         flags=re.DOTALL,
     )
 
-    # 3. 更新图片说明中的累积收益
+    # 3. 更新图片说明中的累积收益；无旧收益文本时也要补上
     for _, row in df.iterrows():
         name = row["strategy_name"]
         cum = row["cumulative_return"]
         display = row.get("display_name", name)
-        # 匹配 gallery-caption 中的收益数字
         pattern = (
-            re.escape(display)
-            + r""" — <span data-lang="cn">累积收益 -?[\d.]+%</span><span data-lang="en">Cumulative Return -?[\d.]+%</span>"""
+            r'(<div class="gallery-caption">)'
+            + re.escape(display)
+            + r'(?P<before>\s*\([^<]*\))?'
+            + r'(?:\s+—\s+<span data-lang="cn">累积收益 -?[\d.]+%</span>'
+              r'<span data-lang="en">Cumulative Return -?[\d.]+%</span>)?'
+            + r'(?P<after>\s*\([^<]*\))?'
+            + r'(?P<closing></div>)'
         )
-        replacement = f'{display} — <span data-lang="cn">累积收益 {cum}</span><span data-lang="en">Cumulative Return {cum}</span>'
-        html = re.sub(pattern, replacement, html)
+
+        def replace_caption(match):
+            suffix = match.group("before") or match.group("after") or ""
+            return (
+                f'{match.group(1)}{display}{suffix} — '
+                f'<span data-lang="cn">累积收益 {cum}</span>'
+                f'<span data-lang="en">Cumulative Return {cum}</span>'
+                f'{match.group("closing")}'
+            )
+
+        html, replacements = re.subn(pattern, replace_caption, html, count=1)
+        if replacements != 1:
+            raise ValueError(f"未找到网站图表说明: {display}")
 
     with open(HTML_PATH, "w", encoding="utf-8") as f:
         f.write(html)

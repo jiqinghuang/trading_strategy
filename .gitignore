@@ -13,6 +13,7 @@ env/
 
 # IDE settings
 .claude/
+.workbuddy/
 .idea/
 .vscode/
 *.swp

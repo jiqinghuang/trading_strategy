@@ -36,8 +36,12 @@ class BacktestEngine:
         })
         return self.strategy.processed_data
 
-    def generate_trading_records(self):
-        """生成交易记录，获取所有行记录"""
+    def generate_trading_records(self, verbose=False):
+        """生成交易记录，获取所有行记录。
+
+        Args:
+            verbose: 为 True 时打印完整日频表；批跑/smoke 默认 False 避免刷屏。
+        """
         if self.strategy.processed_data is None:
             print("错误: 没有有效的数据，无法生成交易记录。")
             return None
@@ -53,8 +57,9 @@ class BacktestEngine:
         }
 
         df = pd.DataFrame(records)
-        with pd.option_context('display.max_rows', len(df)):
-            print(df)
+        if verbose:
+            with pd.option_context('display.max_rows', len(df)):
+                print(df)
         return df
 
     def get_trades(self):

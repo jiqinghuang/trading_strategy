@@ -14,6 +14,7 @@ Excel → Parquet 数据管道
 import argparse
 import msvcrt
 import os
+from pathlib import Path
 import re
 import sys
 from datetime import datetime, timedelta
@@ -23,7 +24,7 @@ import win32com.client
 
 # ---------- 配置 ----------
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DATA_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_START_DATE = datetime(1990, 1, 1).date()
 
 SYMBOLS = [
@@ -309,6 +310,7 @@ def main():
                 (last_date + timedelta(days=1)) if last_date else DEFAULT_START_DATE
             )
 
+            wb = None
             try:
                 wb, ws = build_workbook(excel, symbol, start_date, end_date)
                 excel.CalculateUntilAsyncQueriesDone()
@@ -318,12 +320,13 @@ def main():
                 action = wait_key()
                 if action == "skip":
                     print("→ 跳过")
-                    wb.Close(SaveChanges=False)
                     skipped.append(symbol)
                     continue
 
                 df = read_data_range(ws)
+                # 读完立刻关，后续 merge/保存不再占用 Excel
                 wb.Close(SaveChanges=False)
+                wb = None
 
                 if df is None or df.is_empty():
                     print("→ 无数据")
@@ -351,15 +354,19 @@ def main():
 
             except QuitPipeline:
                 print("→ 退出")
-                try:
-                    wb.Close(SaveChanges=False)
-                except Exception:
-                    pass
                 break
 
             except Exception as e:
                 print(f"→ 失败: {e}")
                 failed.append(symbol)
+
+            finally:
+                # 覆盖跳过/失败/退出等所有未主动关闭的路径，避免 orphan workbook
+                if wb is not None:
+                    try:
+                        wb.Close(SaveChanges=False)
+                    except Exception:
+                        pass
 
     finally:
         excel.Quit()

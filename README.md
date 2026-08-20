@@ -1,6 +1,6 @@
 # 量化交易策略系统
 
-> 项目路径: `c:\Users\Jiqing\Desktop\trading_strategy`
+> 项目路径: `c:\Users\Jiqing\Desktop\repo\trading_strategy`
 > 最后更新: 2026-07-22
 
 ---
@@ -41,7 +41,7 @@ trading_strategy/
 ├── run_all_strategies.py          # 批量运行: 全策略回测与报告生成
 ├── update_local_website.py        # 网站同步: 运行策略并更新本地网站
 ├── 指数代码编号.txt               # 品种列表配置
-└── CLAUDE.md                      # 项目开发指南 (Claude Code 上下文)
+└── README.md                      # 项目说明与运行指南
 ```
 
 ---

@@ -75,6 +75,13 @@ class DataHandler:
                             f"价格列 {col} 在前后向填充后仍存在缺失值，"
                             f"无法用 0 安全填充（会污染收益计算）。请检查数据源。"
                         )
+                    # 价格必须为正：0/负值会在收益除法、交易 PnL 中产生 ±inf 或除零
+                    if col in PRICE_COLS and (self.raw_data[col] <= 0).any():
+                        n_bad = int((self.raw_data[col] <= 0).sum())
+                        raise ValueError(
+                            f"价格列 {col} 存在 {n_bad} 个 ≤ 0 的值，"
+                            f"无法安全用于回测。请检查数据源。"
+                        )
                     # 非价格列剩余缺失值填充为 0
                     self.raw_data = self.raw_data.with_columns(
                         pl.col(col).fill_null(0)
