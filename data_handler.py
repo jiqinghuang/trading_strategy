@@ -1,128 +1,178 @@
+import numpy as np
 import polars as pl
+from datetime import date as date_type, datetime
+
 
 class DataHandler:
     """Data loading and preprocessing module for trading strategy system.
 
     Handles data ingestion from CSV and Parquet files and prepares
     the data for strategy analysis.
-
-    Attributes:
-        raw_data: Raw market data in DataFrame format
-        dates: Numpy array of datetime objects
-        open: Numpy array of opening prices
-        close: Numpy array of closing prices  
-        high: Numpy array of high prices
-        low: Numpy array of low prices
-        volume: Numpy array of trading volumes
     """
-    def __init__(self, data_path, file_type='csv'):
+
+    REQUIRED_COLUMNS = frozenset({
+        "date", "open", "high", "low", "close", "settle", "volume",
+    })
+    REQUIRED_NUMERIC_COLUMNS = frozenset({
+        "open", "high", "low", "close", "settle", "volume",
+    })
+    PRICE_COLUMNS = frozenset({"open", "high", "low", "close", "settle"})
+
+    def __init__(self, data_path, file_type="csv"):
         """
         :param data_path: 文件路径
         :param file_type: 文件类型 ('csv' 或 'parquet')
         """
         self.file_type = file_type
-        if file_type == 'csv':
+        if file_type == "csv":
             self.raw_data = pl.read_csv(data_path)
-        elif file_type == 'parquet':
+        elif file_type == "parquet":
             self.raw_data = pl.read_parquet(data_path)
         else:
             raise ValueError("不支持的file_type类型，请使用'csv'或'parquet'")
-            
-        # 初始化数据字段
+
+        missing = self.REQUIRED_COLUMNS - set(self.raw_data.columns)
+        if missing:
+            raise ValueError(f"数据缺少必需列: {sorted(missing)}")
+
         self.dates = None
         self.open = None
         self.high = None
         self.low = None
-        self.close = None 
+        self.close = None
         self.settle = None
         self.volume = None
 
+    @staticmethod
+    def _normalize_boundary(value, label):
+        """将 date/datetime 边界统一为 datetime。"""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date_type):
+            return datetime.combine(value, datetime.min.time())
+        raise TypeError(f"{label} 必须是 datetime/date/None，收到 {type(value).__name__}")
+
     def preprocess_data(self, start_date=None, end_date=None):
-        """预处理数据
-        Args:
-            start_date (datetime.date): 起始日期(可选)
-            end_date (datetime.date): 结束日期(可选)
+        """预处理数据。
+
+        价格列不做前向/后向填充；存在缺失价格时直接报错，避免把未来价格
+        带入历史回测。非价格数值列的缺失值填充为 0。
         """
-        # 价格列不允许被 0 填充（0 价格会让收益除 0、EMA 被拉向 0、突破信号误触发）；
-        # 成交量/持仓量/金额等缺失视为 0 是合理的。
-        PRICE_COLS = {'open', 'high', 'low', 'close', 'settle'}
+        if self.raw_data.is_empty():
+            raise ValueError("行情数据为空，无法进行回测")
 
-        # 检查并处理缺失值和NaN
-        for col in self.raw_data.columns:
-            if col == 'date':
-                # 日期列不允许有缺失值
-                if self.raw_data[col].is_null().any():
-                    raise ValueError(f"日期列{col}包含缺失值")
+        missing = self.REQUIRED_COLUMNS - set(self.raw_data.columns)
+        if missing:
+            raise ValueError(f"数据缺少必需列: {sorted(missing)}")
+        if self.raw_data["date"].is_null().any():
+            raise ValueError("日期列 date 包含缺失值")
+
+        date_dtype = self.raw_data.schema["date"]
+        try:
+            if date_dtype == pl.String:
+                self.raw_data = self.raw_data.with_columns(
+                    pl.col("date").str.to_datetime(
+                        format="%Y-%m-%d", strict=True
+                    )
+                )
+            elif date_dtype == pl.Date:
+                self.raw_data = self.raw_data.with_columns(
+                    pl.col("date").cast(pl.Datetime)
+                )
+            elif isinstance(date_dtype, pl.Datetime):
+                pass
             else:
-                # 价格列必须是数值类型；全空列会被 polars 推断为 Null dtype，
-                # is_numeric() 为 False，会跳过填充逻辑而静默变成 nan，需显式拦截
-                if col in PRICE_COLS and not self.raw_data[col].dtype.is_numeric():
-                    raise ValueError(
-                        f"价格列 {col} 不是数值类型（dtype={self.raw_data[col].dtype}），"
-                        f"可能整列为空。无法安全用于回测，请检查数据源。"
-                    )
-                # 只对数值列处理NaN
-                if self.raw_data[col].dtype.is_numeric():
-                    # 先前向/后向填充
-                    self.raw_data = self.raw_data.with_columns(
-                        pl.col(col).fill_nan(None) # 将NaN转换为None
-                                  .fill_null(strategy='forward') # 前向填充
-                                  .fill_null(strategy='backward') # 后向填充
-                    )
-                    # 价格列若仍有缺失（整列无有效值或首尾缺口无法覆盖），报错而非注入 0
-                    if col in PRICE_COLS and self.raw_data[col].is_null().any():
-                        raise ValueError(
-                            f"价格列 {col} 在前后向填充后仍存在缺失值，"
-                            f"无法用 0 安全填充（会污染收益计算）。请检查数据源。"
-                        )
-                    # 价格必须为正：0/负值会在收益除法、交易 PnL 中产生 ±inf 或除零
-                    if col in PRICE_COLS and (self.raw_data[col] <= 0).any():
-                        n_bad = int((self.raw_data[col] <= 0).sum())
-                        raise ValueError(
-                            f"价格列 {col} 存在 {n_bad} 个 ≤ 0 的值，"
-                            f"无法安全用于回测。请检查数据源。"
-                        )
-                    # 非价格列剩余缺失值填充为 0
-                    self.raw_data = self.raw_data.with_columns(
-                        pl.col(col).fill_null(0)
-                    )
+                raise ValueError(
+                    f"日期列 date 类型不支持: {date_dtype}，"
+                    "请使用 YYYY-MM-DD 字符串、Date 或 Datetime"
+                )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"日期列 date 无法解析: {exc}") from exc
 
-        # 转换日期列为datetime类型
-        self.raw_data = self.raw_data.with_columns(
-            pl.col('date').str.to_datetime(format="%Y-%m-%d")
-        )
+        if self.raw_data["date"].is_null().any():
+            raise ValueError("日期列 date 包含无法解析的值")
 
-        # 获取数据中的实际日期范围
-        min_date = self.raw_data['date'].min()
-        max_date = self.raw_data['date'].max()
+        # 策略计算要求时间顺序稳定；重复日期会造成重复收益区间。
+        self.raw_data = self.raw_data.sort("date")
+        if self.raw_data["date"].n_unique() != self.raw_data.height:
+            raise ValueError("日期列 date 包含重复日期，无法安全回测")
 
-        # 自动调整超出数据范围的日期
-        if start_date:
+        min_date = self.raw_data["date"].min()
+        max_date = self.raw_data["date"].max()
+        start_date = self._normalize_boundary(start_date, "start_date")
+        end_date = self._normalize_boundary(end_date, "end_date")
+
+        if start_date is not None:
             if start_date < min_date:
                 start_date = None
             elif start_date > max_date:
-                raise ValueError(f"起始日期 {start_date} 超出数据范围 (最晚 {max_date})")
-        if end_date:
+                raise ValueError(
+                    f"起始日期 {start_date} 超出数据范围 (最晚 {max_date})"
+                )
+        if end_date is not None:
             if end_date > max_date:
                 end_date = None
             elif end_date < min_date:
-                raise ValueError(f"截止日期 {end_date} 早于数据范围 (最早 {min_date})")
+                raise ValueError(
+                    f"截止日期 {end_date} 早于数据范围 (最早 {min_date})"
+                )
+        if start_date is not None and end_date is not None and start_date > end_date:
+            raise ValueError(f"起始日期 {start_date} 晚于截止日期 {end_date}")
 
-        # 日期范围筛选（合并为一次 filter）
-        if start_date or end_date:
-            exprs = []
-            if start_date:
-                exprs.append(pl.col('date') >= start_date)
-            if end_date:
-                exprs.append(pl.col('date') <= end_date)
-            self.raw_data = self.raw_data.filter(*exprs)
+        if start_date is not None or end_date is not None:
+            filters = []
+            if start_date is not None:
+                filters.append(pl.col("date") >= start_date)
+            if end_date is not None:
+                filters.append(pl.col("date") <= end_date)
+            self.raw_data = self.raw_data.filter(*filters)
 
-        # 转换数据为numpy格式            
-        self.dates = self.raw_data['date'].to_numpy()  # 直接使用已转换的日期列
-        self.open = self.raw_data['open'].to_numpy()
-        self.high = self.raw_data['high'].to_numpy()
-        self.low = self.raw_data['low'].to_numpy()
-        self.close = self.raw_data['close'].to_numpy()
-        self.settle = self.raw_data['settle'].to_numpy()
-        self.volume = self.raw_data['volume'].to_numpy()
-        return self  # 添加返回自身以支持链式调用
+        if self.raw_data.is_empty():
+            raise ValueError("日期筛选后没有可用于回测的数据")
+
+        for col in sorted(self.REQUIRED_NUMERIC_COLUMNS):
+            dtype = self.raw_data.schema[col]
+            if not dtype.is_numeric():
+                raise ValueError(
+                    f"必需数值列 {col} 不是数值类型（dtype={dtype}）"
+                )
+
+        # 数值列统一为 Float64，避免整数价格导致指标截断或无法写入 NaN。
+        for col in self.raw_data.columns:
+            if col == "date" or not self.raw_data.schema[col].is_numeric():
+                continue
+            expr = pl.col(col).cast(pl.Float64).fill_nan(None)
+            if col in self.PRICE_COLUMNS:
+                # 价格缺失直接报错，不使用 backward fill 引入未来数据。
+                self.raw_data = self.raw_data.with_columns(expr)
+            else:
+                self.raw_data = self.raw_data.with_columns(expr.fill_null(0))
+
+        for col in sorted(self.REQUIRED_NUMERIC_COLUMNS):
+            if self.raw_data[col].is_null().any():
+                raise ValueError(
+                    f"必需数值列 {col} 包含缺失值，请清理数据后再回测"
+                )
+
+        for col in self.raw_data.columns:
+            if col == "date" or not self.raw_data.schema[col].is_numeric():
+                continue
+            values = self.raw_data[col].to_numpy()
+            if not np.isfinite(values).all():
+                raise ValueError(f"数值列 {col} 包含 NaN 或无穷值")
+            if col in self.PRICE_COLUMNS and (values <= 0).any():
+                n_bad = int((values <= 0).sum())
+                raise ValueError(
+                    f"价格列 {col} 存在 {n_bad} 个 ≤ 0 的值，无法安全用于回测"
+                )
+
+        self.dates = self.raw_data["date"].to_numpy()
+        self.open = self.raw_data["open"].to_numpy()
+        self.high = self.raw_data["high"].to_numpy()
+        self.low = self.raw_data["low"].to_numpy()
+        self.close = self.raw_data["close"].to_numpy()
+        self.settle = self.raw_data["settle"].to_numpy()
+        self.volume = self.raw_data["volume"].to_numpy()
+        return self

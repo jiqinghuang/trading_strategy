@@ -1,7 +1,7 @@
 # 量化交易策略系统
 
 > 项目路径: `c:\Users\Jiqing\Desktop\repo\trading_strategy`
-> 最后更新: 2026-07-22
+> 最后更新: 2026-08-25
 
 ---
 
@@ -38,6 +38,7 @@ trading_strategy/
 ├── visualization.py               # 可视化模块: Matplotlib 图表
 ├── excel_to_parquet.py            # Wind 数据获取: Excel COM 管道
 ├── test_strategies.py             # 策略测试: 多策略快速对比
+├── test_regressions.py            # 回归测试: 核心逻辑与输出边界
 ├── run_all_strategies.py          # 批量运行: 全策略回测与报告生成
 ├── update_local_website.py        # 网站同步: 运行策略并更新本地网站
 ├── 指数代码编号.txt               # 品种列表配置
@@ -122,7 +123,7 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE  # 单品种更新
 
 #### `data_handler.py` — 数据加载与预处理
 
-使用 **Polars** 高效读取 CSV/Parquet，提供缺失值处理与日期筛选，最终转换为 NumPy 数组供策略层使用。
+使用 **Polars** 高效读取 CSV/Parquet，提供日期转换/排序、缺失值校验与日期筛选，最终转换为 NumPy 数组供策略层使用。
 
 **类: `DataHandler`**
 
@@ -137,13 +138,13 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE  # 单品种更新
 | 方法 | 说明 |
 |------|------|
 | `__init__(data_path, file_type='csv')` | 加载 CSV 或 Parquet |
-| `preprocess_data(start_date, end_date)` | 缺失值处理(前向/后向填充)、日期筛选、转 NumPy |
+| `preprocess_data(start_date, end_date)` | 日期转换/排序、缺失值校验、日期筛选、转 NumPy |
 
 **缺失值处理策略:**
 1. `NaN` → `None`
-2. 前向填充 (`forward`)
-3. 后向填充 (`backward`)
-4. 剩余填充为 `0`
+2. 价格列 (`open/high/low/close/settle`) 出现缺失时直接报错，避免未来数据泄漏
+3. 非价格数值列缺失填充为 `0`
+4. 所有数值列检查有限性，价格列检查必须大于 `0`
 
 ---
 
@@ -168,7 +169,7 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE  # 单品种更新
 - `TradingSignal`: `1` = 买入, `-1` = 卖出, `0` = 持有
 - `Position`: `1` = 多头, `-1` = 空头, `0` = 空仓
 - `ActionStates`: `'buy'` / `'sell'` / `'hold'`
-- **执行价格**: `(open + close) / 2`
+- **执行价格**: T 日收盘出信号，T+1 日开盘成交；按开盘到开盘计算收益
 - **交易延迟**: 信号产生于 T 日，仓位生效于 T+1 日
 
 **核心方法:**
@@ -388,7 +389,12 @@ python main.py
 python test_strategies.py
 ```
 
-运行 10 组策略配置，输出累计收益率与交易次数排名。
+运行 10 组策略配置，输出累计收益率与交易次数排名；任一策略失败都会以非零状态结束。
+
+核心回归测试：
+```bash
+python -m unittest -v test_regressions.py
+```
 
 ### 6.3 批量回测与报告
 
@@ -440,7 +446,7 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE
 {
     'Date': np.ndarray,           # 日期
     'Close': np.ndarray,          # 收盘价
-    'ExecutionPrice': np.ndarray, # 执行价格 (open+close)/2
+    'ExecutionPrice': np.ndarray, # 执行价格（T+1 日开盘价）
     '<IndicatorName>': np.ndarray, # 指标值 (如 EWMA_30)
     'TradingSignal': np.ndarray,  # 交易信号 (1/-1/0)
     'Position': np.ndarray,       # 持仓状态 (1/-1/0)
@@ -508,7 +514,7 @@ def _generate_my_strategy_signals(self):
 | 决策 | 说明 |
 |------|------|
 | **Polars 替代 Pandas** | 数据加载层使用 Polars 以获得更快的 IO 性能；策略计算层使用 NumPy 数组避免 DataFrame 开销 |
-| **执行价格 = (open+close)/2** | 模拟日内平均成交价格，比仅用 close 更贴近真实交易成本 |
+| **T+1 日开盘执行** | T 日收盘出信号、T+1 日开盘成交，避免使用未来收盘价 |
 | **T 日信号 → T+1 日持仓** | 避免未来函数 (look-ahead bias)，确保回测真实性 |
 | **Excel 作为计算层** | 利用 Wind Excel 插件的 WSD 公式能力，不依赖 Wind Python API |
 | **Parquet 作为存储格式** | 相比 CSV 具有更好的压缩率与读写性能，支持增量更新 |

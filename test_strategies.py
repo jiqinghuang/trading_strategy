@@ -115,6 +115,7 @@ def test_all_strategies():
         print(f"\n失败策略 ({len(failed_results)}个):")
         for result in failed_results:
             print(f"- {result['strategy']}: {result.get('error', '未知错误')}")
+        raise AssertionError(f"{len(failed_results)} 个策略测试失败")
 
 def visualize_strategy(strategy_type='MACD', **kwargs):
     """可视化特定策略"""

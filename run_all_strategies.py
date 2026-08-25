@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import date as date_type, datetime
 import matplotlib.pyplot as plt
 import polars as pl
 from data_handler import DataHandler
@@ -29,125 +29,136 @@ class StrategyRunner:
 
         self.results = []
         self.strategy_data = {}
+        self.failures = []
 
         # 创建输出目录
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.output_dir / "plots", exist_ok=True)
 
+    @staticmethod
+    def _coerce_datetime(value, label):
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date_type):
+            return datetime.combine(value, datetime.min.time())
+        try:
+            return datetime.strptime(str(value), "%Y-%m-%d")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label} 无法解析为日期: {value!r}") from exc
+
     def load_data(self):
-        """加载最近N年的数据"""
-        max_date_str = pl.scan_parquet(self.data_path).select(
+        """加载并校验回测数据。"""
+        if not self.data_path.is_file():
+            raise FileNotFoundError(f"找不到行情文件: {self.data_path}")
+
+        max_date_raw = pl.scan_parquet(self.data_path).select(
             pl.col("date").max()
         ).collect().item()
-        end_date = datetime.strptime(max_date_str, "%Y-%m-%d")
+        if max_date_raw is None:
+            raise ValueError(f"行情文件没有有效日期: {self.data_path}")
+
+        end_date = self._coerce_datetime(max_date_raw, "最大日期")
         start_date = datetime(2020, 1, 1)
+        if start_date > end_date:
+            raise ValueError(
+                f"回测起始日期 {start_date.date()} 晚于数据最大日期 {end_date.date()}"
+            )
 
         print(f"加载数据: {start_date.date()} 至 {end_date.date()}")
 
-        data_loader = DataHandler(self.data_path, file_type='parquet')
+        data_loader = DataHandler(self.data_path, file_type="parquet")
         data_loader.preprocess_data(
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
         )
-
         return data_loader
 
     def run_strategy(self, data_loader, strategy_type, strategy_name, display_name=None, **params):
-        """运行单个策略"""
+        """运行单个策略；异常由批量入口统一汇总。"""
         print(f"\n运行策略: {strategy_name}")
         print(f"参数: {params}")
 
-        try:
-            # 初始化策略
-            strategy = TradingStrategyCore(data_loader, strategy_type=strategy_type, **params)
+        strategy = TradingStrategyCore(
+            data_loader, strategy_type=strategy_type, **params
+        )
+        strategy.generate_signals()
 
-            # 生成信号
-            strategy.generate_signals()
+        backtester = BacktestEngine(strategy)
+        backtester.run_backtest()
+        trade_df = backtester.generate_trading_records()
 
-            # 运行回测
-            backtester = BacktestEngine(strategy)
-            backtester.run_backtest()
+        if strategy.processed_data is None:
+            raise RuntimeError(f"策略 {strategy_name} 没有生成处理数据")
 
-            # 生成交易记录
-            trade_df = backtester.generate_trading_records()
+        cumulative_return = strategy.processed_data["CumulativeReturn"][-1]
+        if not np.isfinite(cumulative_return):
+            raise ValueError(f"策略 {strategy_name} 的累计收益不是有限值")
 
-            if strategy.processed_data is not None:
-                # 计算性能指标
-                cumulative_return = strategy.processed_data['CumulativeReturn'][-1]
+        # cumulative_return 是权益乘数；年化使用实际日历跨度。
+        first_date = strategy.processed_data["Date"][0]
+        last_date = strategy.processed_data["Date"][-1]
+        days = (last_date - first_date).astype("timedelta64[D]").astype(int)
+        years = days / 365.25
+        if years > 0 and cumulative_return > 0:
+            annualized_return = cumulative_return ** (1 / years) - 1
+        else:
+            annualized_return = float("nan")
 
-                # 计算年化收益率（cumulative_return 已是乘数，如 1.5 = +50%，0.8 = -20%）
-                # 用日期跨度而非交易天数，避免少算年数拉高年化
-                # 权益乘数 ≤ 0 时（空头单日亏超 100% 等）幂运算会出复数，记为 NaN
-                first_date = strategy.processed_data['Date'][0]
-                last_date = strategy.processed_data['Date'][-1]
-                days = (last_date - first_date).astype('timedelta64[D]').astype(int)
-                years = days / 365.25
-                if years > 0 and cumulative_return > 0:
-                    annualized_return = cumulative_return ** (1 / years) - 1
-                else:
-                    annualized_return = float('nan')
+        cumulative_returns = np.asarray(
+            strategy.processed_data["CumulativeReturn"], dtype=float
+        )
+        if not np.isfinite(cumulative_returns).all():
+            raise ValueError(f"策略 {strategy_name} 的累计收益包含 NaN/Inf")
+        running_max = np.maximum.accumulate(cumulative_returns)
+        valid_peak = running_max > 0
+        if np.any(valid_peak):
+            drawdown = np.full(len(cumulative_returns), np.nan, dtype=float)
+            drawdown[valid_peak] = (
+                (cumulative_returns[valid_peak] - running_max[valid_peak])
+                / running_max[valid_peak]
+            )
+            max_drawdown = float(np.nanmin(drawdown))
+        else:
+            max_drawdown = float("nan")
 
-                # 计算最大回撤；峰值 ≤ 0 时跳过除法，避免 -inf/NaN 污染
-                cumulative_returns = strategy.processed_data['CumulativeReturn']
-                running_max = np.maximum.accumulate(cumulative_returns)
-                valid_peak = running_max > 0
-                if np.any(valid_peak):
-                    drawdown = np.full(len(cumulative_returns), np.nan, dtype=float)
-                    drawdown[valid_peak] = (
-                        (cumulative_returns[valid_peak] - running_max[valid_peak])
-                        / running_max[valid_peak]
-                    )
-                    max_drawdown = float(np.nanmin(drawdown))
-                else:
-                    max_drawdown = float('nan')
+        # 统计基于配对后的 round trip，而不是 buy/sell 动作数量。
+        trades_df = backtester.get_trades()
+        if trades_df is not None and len(trades_df) > 0:
+            total_trades = len(trades_df)
+            winning_trades = (trades_df["return"] > 0).sum()
+            win_rate = winning_trades / total_trades
+            avg_return = trades_df["return"].mean()
+        else:
+            total_trades = 0
+            win_rate = 0
+            avg_return = 0
 
-                # 计算交易次数、胜率、平均收益（统一基于配对交易 round trip）
-                trades_df = backtester.get_trades()
-                if trades_df is not None and len(trades_df) > 0:
-                    total_trades = len(trades_df)
-                    winning_trades = (trades_df['return'] > 0).sum()
-                    win_rate = winning_trades / total_trades
-                    avg_return = trades_df['return'].mean()
-                else:
-                    total_trades = 0
-                    win_rate = 0
-                    avg_return = 0
+        result = {
+            "strategy_name": strategy_name,
+            "display_name": display_name or strategy_name,
+            "strategy_type": strategy_type,
+            "cumulative_return": cumulative_return,
+            "annualized_return": annualized_return,
+            "max_drawdown": max_drawdown,
+            "total_trades": total_trades,
+            "win_rate": win_rate,
+            "avg_trade_return": avg_return,
+            "parameters": str(params),
+        }
 
-                result = {
-                    'strategy_name': strategy_name,
-                    'display_name': display_name or strategy_name,
-                    'strategy_type': strategy_type,
-                    'cumulative_return': cumulative_return,
-                    'annualized_return': annualized_return,
-                    'max_drawdown': max_drawdown,
-                    'total_trades': total_trades,
-                    'win_rate': win_rate,
-                    'avg_trade_return': avg_return,
-                    'parameters': str(params)
-                }
+        self.strategy_data[strategy_name] = {
+            "processed_data": strategy.processed_data,
+            "trade_df": trade_df,
+            "result": result,
+        }
 
-                # 保存策略数据
-                self.strategy_data[strategy_name] = {
-                    'processed_data': strategy.processed_data,
-                    'trade_df': trade_df,
-                    'result': result
-                }
-
-                print(f"  累计收益率: {cumulative_return - 1:.2%}")
-                print(f"  年化收益率: {annualized_return:.2%}")
-                print(f"  最大回撤: {max_drawdown:.2%}")
-                print(f"  总交易次数: {total_trades}")
-                print(f"  胜率: {win_rate:.2%}")
-                print(f"  平均交易收益: {avg_return:.2%}")
-
-                return result
-            else:
-                print("错误: 没有生成处理数据")
-                return None
-
-        except Exception as e:
-            print(f"错误: {str(e)}")
-            return None
+        print(f"  累计收益率: {cumulative_return - 1:.2%}")
+        print(f"  年化收益率: {annualized_return:.2%}")
+        print(f"  最大回撤: {max_drawdown:.2%}")
+        print(f"  总交易次数: {total_trades}")
+        print(f"  胜率: {win_rate:.2%}")
+        print(f"  平均交易收益: {avg_return:.2%}")
+        return result
 
     def create_visualization(self, strategy_name, data_loader):
         if strategy_name not in self.strategy_data:
@@ -168,41 +179,72 @@ class StrategyRunner:
         print(f"  图表已保存: {plot_path}")
 
     def run_all_strategies(self):
-        """运行所有策略"""
+        """运行所有策略；任一策略失败都会以异常结束批量流程。"""
+        # Runner 可以复用，但每次运行必须从干净状态开始。
+        self.results.clear()
+        self.strategy_data.clear()
+        self.failures.clear()
+
         print("=" * 60)
         print("开始运行所有策略")
         print("=" * 60)
 
-        # 加载数据
         data_loader = self.load_data()
-
-        # 定义要测试的策略
         strategies = [
-            # (策略类型, 策略名称, 参数, 显示名称)
-            ('EWMA', 'EWMA_30', {'span': 30}, 'EWMA Long-Short'),
-            ('EWMA_LONG_ONLY', 'EWMA_LONG_ONLY_30', {'span': 30}, 'EWMA Long-Only'),
-            ('MACD', 'MACD_12_26_9', {'fast_period': 12, 'slow_period': 26, 'signal_period': 9}, 'MACD'),
-            ('DONCHIAN', 'DONCHIAN_20', {'channel_period': 20}, 'Donchian (20)'),
-            ('DONCHIAN', 'DONCHIAN_50', {'channel_period': 50}, 'Donchian (50)'),
-            ('BOLLINGER', 'BOLLINGER_20_2', {'bb_period': 20, 'bb_std': 2.0}, 'Bollinger (20, 2.0)'),
-            ('BOLLINGER', 'BOLLINGER_20_1.5', {'bb_period': 20, 'bb_std': 1.5}, 'Bollinger (20, 1.5)'),
-            ('RSI', 'RSI_14_30_70', {'rsi_period': 14, 'oversold_threshold': 30, 'overbought_threshold': 70}, 'RSI'),
-            ('TMA', 'TMA_5_20_60', {'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}, 'TMA (5/20/60)'),
-            ('TMA', 'TMA_10_30_90', {'tma_fast': 10, 'tma_medium': 30, 'tma_slow': 90}, 'TMA (10/30/90)'),
+            ("EWMA", "EWMA_30", {"span": 30}, "EWMA Long-Short"),
+            ("EWMA_LONG_ONLY", "EWMA_LONG_ONLY_30", {"span": 30}, "EWMA Long-Only"),
+            ("MACD", "MACD_12_26_9", {"fast_period": 12, "slow_period": 26, "signal_period": 9}, "MACD"),
+            ("DONCHIAN", "DONCHIAN_20", {"channel_period": 20}, "Donchian (20)"),
+            ("DONCHIAN", "DONCHIAN_50", {"channel_period": 50}, "Donchian (50)"),
+            ("BOLLINGER", "BOLLINGER_20_2", {"bb_period": 20, "bb_std": 2.0}, "Bollinger (20, 2.0)"),
+            ("BOLLINGER", "BOLLINGER_20_1.5", {"bb_period": 20, "bb_std": 1.5}, "Bollinger (20, 1.5)"),
+            ("RSI", "RSI_14_30_70", {"rsi_period": 14, "oversold_threshold": 30, "overbought_threshold": 70}, "RSI"),
+            ("TMA", "TMA_5_20_60", {"tma_fast": 5, "tma_medium": 20, "tma_slow": 60}, "TMA (5/20/60)"),
+            ("TMA", "TMA_10_30_90", {"tma_fast": 10, "tma_medium": 30, "tma_slow": 90}, "TMA (10/30/90)"),
         ]
 
-        # 运行所有策略
         for strategy_type, strategy_name, params, display_name in strategies:
-            result = self.run_strategy(data_loader, strategy_type, strategy_name, display_name=display_name, **params)
-            if result:
+            try:
+                result = self.run_strategy(
+                    data_loader,
+                    strategy_type,
+                    strategy_name,
+                    display_name=display_name,
+                    **params,
+                )
+                if result is None:
+                    raise RuntimeError(f"策略 {strategy_name} 没有返回结果")
                 self.results.append(result)
-                # 创建可视化
                 self.create_visualization(strategy_name, data_loader)
+            except Exception as exc:
+                failure = {
+                    "strategy_name": strategy_name,
+                    "strategy_type": strategy_type,
+                    "error": str(exc),
+                }
+                self.failures.append(failure)
+                print(f"错误: {strategy_name}: {exc}")
+
+        if self.failures:
+            details = "; ".join(
+                f"{item['strategy_name']}: {item['error']}"
+                for item in self.failures
+            )
+            raise RuntimeError(
+                f"{len(self.failures)}/{len(strategies)} 个策略运行失败；"
+                f"未生成可发布的完整结果。{details}"
+            )
+        if len(self.results) != len(strategies):
+            raise RuntimeError(
+                f"策略结果数量异常: {len(self.results)}/{len(strategies)}"
+            )
 
         return self.results
 
     def save_to_excel(self):
-        """保存结果到Excel文件"""
+        """保存结果到Excel文件。"""
+        if getattr(self, "failures", None):
+            raise RuntimeError("存在失败策略，拒绝导出不完整的结果")
         if not self.results:
             print("没有结果可保存")
             return
@@ -226,7 +268,7 @@ class StrategyRunner:
             df['cumulative_return'] = df['cumulative_return'].apply(lambda x: f"{x - 1:.2%}" if pd.notnull(x) else "")
 
         # 保存到Excel
-        excel_path = os.path.join(self.output_dir, "strategy_results.xlsx")
+        excel_path = self.output_dir / "strategy_results.xlsx"
 
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
             # 保存汇总结果
@@ -237,13 +279,18 @@ class StrategyRunner:
                 if data['trade_df'] is not None:
                     trade_df = data['trade_df']
                     if isinstance(trade_df, pd.DataFrame) and len(trade_df) > 0:
-                        # 格式化日期列
-                        if 'Date' in trade_df.columns:
-                            trade_df['Date'] = trade_df['Date'].dt.strftime('%Y-%m-%d')
+                        # 使用副本导出，不能改变 strategy_data 中的原始 datetime。
+                        export_trade_df = trade_df.copy()
+                        if "Date" in export_trade_df.columns:
+                            export_trade_df["Date"] = pd.to_datetime(
+                                export_trade_df["Date"], errors="raise"
+                            ).dt.strftime("%Y-%m-%d")
 
                         # 截断长名称以适应Excel工作表名称限制
-                        sheet_name = strategy_name[:31]  # Excel工作表名称最多31字符
-                        trade_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_name = strategy_name[:31]
+                        export_trade_df.to_excel(
+                            writer, sheet_name=sheet_name, index=False
+                        )
 
         print(f"\n结果已保存到Excel: {excel_path}")
 
