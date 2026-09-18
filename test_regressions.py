@@ -81,6 +81,59 @@ class RegressionTests(unittest.TestCase):
             [0.0, 0.5, 1.0 / 3.0, 0.0],
         )
 
+    def test_rolling_channel_and_mean_std_match_reference(self):
+        core = object.__new__(TradingStrategyCore)
+        rng = np.random.default_rng(7)
+        n, period = 40, 5
+        high = np.cumsum(rng.normal(size=n)) + 100.0
+        low = high - rng.uniform(0, 1, size=n)
+        close = (high + low) / 2
+
+        upper, lower = core._rolling_channel(high, low, period)
+        mean, std = core._rolling_mean_std(close, period)
+
+        # 参考：逐 bar 扩张/滚动窗口（std 用样本标准差 ddof=1）
+        for i in range(n):
+            start = max(0, i - period + 1)
+            self.assertAlmostEqual(upper[i], high[start:i + 1].max())
+            self.assertAlmostEqual(lower[i], low[start:i + 1].min())
+            window = close[start:i + 1]
+            self.assertAlmostEqual(mean[i], window.mean())
+            expected_std = window.std(ddof=1) if len(window) > 1 else 0.0
+            self.assertAlmostEqual(std[i], expected_std)
+
+        # 样本标准差应大于等于总体标准差（ddof 修正的方向性检查）
+        full = close[-period:]
+        self.assertGreater(full.std(ddof=1), full.std(ddof=0))
+
+    def test_backtest_fee_charged_on_position_changes(self):
+        handler = self.make_handler(
+            [10.0, 20.0, 30.0, 40.0],
+            [100.0, 200.0, 300.0, 400.0],
+        )
+        strategy = TradingStrategyCore(handler, "EWMA", span=2)
+        signal = np.array([1.0, 0.0, 0.0, 0.0])
+        position, actions = strategy._generate_position_from_signals(signal)
+        strategy._create_processed_data(np.zeros(4), signal, position, actions)
+
+        # 单边 100 bps = 1%；持仓在第 1 根 bar 从 0 变 1，仅此处收费。
+        backtester = BacktestEngine(strategy, fee_bps=100)
+        result = backtester.run_backtest()
+        np.testing.assert_allclose(
+            result["StrategyReturn"],
+            [0.0, 0.5 - 0.01, 1.0 / 3.0, 0.0],
+        )
+
+        # fee_bps=0 时必须与不计成本结果逐位一致
+        backtester_free = BacktestEngine(strategy, fee_bps=0)
+        result_free = backtester_free.run_backtest()
+        np.testing.assert_allclose(
+            result_free["StrategyReturn"], [0.0, 0.5, 1.0 / 3.0, 0.0]
+        )
+
+        with self.assertRaisesRegex(ValueError, "fee_bps"):
+            BacktestEngine(strategy, fee_bps=-1)
+
     def test_data_handler_sorts_and_casts_numeric_arrays(self):
         handler = DataHandler.__new__(DataHandler)
         handler.raw_data = self.make_raw_data(
@@ -130,6 +183,7 @@ class RegressionTests(unittest.TestCase):
         try:
             runner = StrategyRunner.__new__(StrategyRunner)
             runner.output_dir = output_dir
+            runner.fee_bps = 0.0
             runner.results = [{
                 "strategy_name": "EWMA_30",
                 "display_name": "EWMA Long-Short",

@@ -1,7 +1,7 @@
 # 量化交易策略系统
 
 > 项目路径: `c:\Users\Jiqing\Desktop\repo\trading_strategy`
-> 最后更新: 2026-08-25
+> 最后更新: 2026-09-18
 
 ---
 
@@ -107,6 +107,9 @@ trading_strategy/
 | `merge_and_save(symbol, new_df, existing)` | 合并新旧数据，按日期去重后保存 |
 | `main()` | CLI 入口，支持 `--end`, `--full`, `-s/--symbol` 参数 |
 
+**品种清单**：单一数据源为同目录的 `指数代码编号.txt`（Python 字面量列表），
+启动时自动解析；文件缺失或解析失败时回退到代码内置清单并打印警告。
+
 **CLI 用法:**
 ```bash
 python excel_to_parquet.py --end 20260722           # 增量更新全部品种
@@ -208,6 +211,7 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE  # 单品种更新
 | 属性 | 说明 |
 |------|------|
 | `strategy` | 关联的 `TradingStrategyCore` 实例 |
+| `fee_rate` | 单边交易成本比例（`fee_bps` / 10000） |
 
 | 方法 | 说明 |
 |------|------|
@@ -217,9 +221,13 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE  # 单品种更新
 **收益计算逻辑:**
 ```
 returns = execution_price[1:] / execution_price[:-1] - 1
-strategy_returns = position * returns
+strategy_returns = position * returns - |Δposition| * fee_rate   # fee_bps=0 时无成本项
 cumulative_returns = cumprod(1 + strategy_returns)
 ```
+
+**交易成本（`fee_bps`）:** `BacktestEngine(strategy, fee_bps=...)`，单位万分之一，
+按每次调仓比例 |Δposition| 收取（期初视为空仓）；默认 0 = 不计成本，结果与旧版一致。
+`get_trades()` 的单笔收益为毛收益，未摊入费用。
 
 ---
 
@@ -258,10 +266,16 @@ cumulative_returns = cumprod(1 + strategy_returns)
 **输出绩效指标:**
 - 累计收益率 (`cumulative_return`)
 - 年化收益率 (`annualized_return`)
+- 年化波动率 (`annualized_volatility`，日收益 × √252)
+- Sharpe 比率 (`sharpe_ratio`，rf=0；全程无持仓时为 NaN)
 - 最大回撤 (`max_drawdown`)
-- 总交易次数 (`total_trades`)
+- 总交易次数 (`total_trades`，基于配对 round trip)
 - 胜率 (`win_rate`)
 - 平均交易收益 (`avg_trade_return`)
+- 交易成本 (`fee_bps`)
+
+`StrategyRunner(data_path, output_dir, fee_bps=...)` 支持传入单边成本（万分之一），
+`fee_bps>0` 时上述收益类指标均为扣除成本后的净值。
 
 ---
 
@@ -295,9 +309,12 @@ cumulative_returns = cumprod(1 + strategy_returns)
 | 函数 | 职责 |
 |------|------|
 | `run_strategies()` | 调用 `StrategyRunner` 运行所有策略并保存 Excel/HTML |
-| `copy_plots()` | 将 `results/plots/*.png` 复制到网站 `assets/plots/` |
-| `update_html()` | 读取 Excel 结果，用正则替换更新网站 HTML 中的统计数据、性能表和图片说明 |
+| `copy_plots()` | 将 `results/plots/*.png` 复制到网站 `assets/plots/`，**并用 Pillow 同步生成 .webp**（网站 `<picture>` 以 webp 优先） |
+| `update_img_dimensions(sizes)` | 按实际 PNG 尺寸更新网站 `<img>` 的 `width`/`height`（最佳努力） |
+| `update_html()` | 读取 Excel 结果，用正则替换更新网站 HTML 中的统计数据、性能表和图片说明；统计数字替换校验恰好匹配一处 |
 | `main()` | 三步流水线入口：运行策略 → 复制图表 → 更新 HTML |
+
+需要 `pip install pillow`（缺失时跳过 webp/尺寸步骤并警告，PNG 同步不受影响）。
 
 **HTML 更新逻辑:**
 1. 更新顶部最高累计收益统计数字
@@ -420,6 +437,10 @@ python excel_to_parquet.py --end 20260722 --full
 python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE
 ```
 
+### 6.5 持续集成
+
+仓库配有 GitHub Actions（`.github/workflows/ci.yml`）：每次 push 自动安装依赖并运行 `test_regressions` 回归测试。
+
 ---
 
 ## 7. 数据格式
@@ -516,6 +537,8 @@ def _generate_my_strategy_signals(self):
 | **Polars 替代 Pandas** | 数据加载层使用 Polars 以获得更快的 IO 性能；策略计算层使用 NumPy 数组避免 DataFrame 开销 |
 | **T+1 日开盘执行** | T 日收盘出信号、T+1 日开盘成交，避免使用未来收盘价 |
 | **T 日信号 → T+1 日持仓** | 避免未来函数 (look-ahead bias)，确保回测真实性 |
+| **交易成本可配置** | `fee_bps` 单边万分之一，按调仓比例收取；默认 0 保证与历史结果可比 |
+| **布林带用样本标准差** | ddof=1，与 pandas/TA-Lib 惯例一致（2026-09 起） |
 | **Excel 作为计算层** | 利用 Wind Excel 插件的 WSD 公式能力，不依赖 Wind Python API |
 | **Parquet 作为存储格式** | 相比 CSV 具有更好的压缩率与读写性能，支持增量更新 |
 

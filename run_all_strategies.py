@@ -16,7 +16,7 @@ _BASE_DIR = Path(__file__).resolve().parent
 class StrategyRunner:
     """运行所有策略并保存结果"""
 
-    def __init__(self, data_path, output_dir="results"):
+    def __init__(self, data_path, output_dir="results", fee_bps=0.0):
         self.data_path = Path(data_path).expanduser()
         if not self.data_path.is_absolute():
             self.data_path = _BASE_DIR / self.data_path
@@ -26,6 +26,11 @@ class StrategyRunner:
         if not self.output_dir.is_absolute():
             self.output_dir = _BASE_DIR / self.output_dir
         self.output_dir = self.output_dir.resolve()
+
+        fee = float(fee_bps)
+        if not np.isfinite(fee) or fee < 0:
+            raise ValueError(f"fee_bps 必须是非负数，收到 {fee_bps!r}")
+        self.fee_bps = fee
 
         self.results = []
         self.strategy_data = {}
@@ -83,7 +88,7 @@ class StrategyRunner:
         )
         strategy.generate_signals()
 
-        backtester = BacktestEngine(strategy)
+        backtester = BacktestEngine(strategy, fee_bps=self.fee_bps)
         backtester.run_backtest()
         trade_df = backtester.generate_trading_records()
 
@@ -121,6 +126,19 @@ class StrategyRunner:
         else:
             max_drawdown = float("nan")
 
+        # 风险调整指标基于策略日收益（含费用，若 fee_bps>0）。
+        # 年化用 252 个交易日；日收益恒为 0（全程无持仓）时 Sharpe/波动率记为 NaN。
+        strategy_returns = np.asarray(
+            strategy.processed_data["StrategyReturn"], dtype=float
+        )
+        daily_std = float(np.std(strategy_returns, ddof=1)) if len(strategy_returns) > 1 else 0.0
+        if daily_std > 0:
+            annualized_volatility = daily_std * np.sqrt(252)
+            sharpe_ratio = float(np.mean(strategy_returns)) / daily_std * np.sqrt(252)
+        else:
+            annualized_volatility = float("nan")
+            sharpe_ratio = float("nan")
+
         # 统计基于配对后的 round trip，而不是 buy/sell 动作数量。
         trades_df = backtester.get_trades()
         if trades_df is not None and len(trades_df) > 0:
@@ -139,10 +157,13 @@ class StrategyRunner:
             "strategy_type": strategy_type,
             "cumulative_return": cumulative_return,
             "annualized_return": annualized_return,
+            "annualized_volatility": annualized_volatility,
+            "sharpe_ratio": sharpe_ratio,
             "max_drawdown": max_drawdown,
             "total_trades": total_trades,
             "win_rate": win_rate,
             "avg_trade_return": avg_return,
+            "fee_bps": self.fee_bps,
             "parameters": str(params),
         }
 
@@ -154,10 +175,14 @@ class StrategyRunner:
 
         print(f"  累计收益率: {cumulative_return - 1:.2%}")
         print(f"  年化收益率: {annualized_return:.2%}")
+        print(f"  年化波动率: {annualized_volatility:.2%}")
+        print(f"  Sharpe 比率: {sharpe_ratio:.2f}")
         print(f"  最大回撤: {max_drawdown:.2%}")
         print(f"  总交易次数: {total_trades}")
         print(f"  胜率: {win_rate:.2%}")
         print(f"  平均交易收益: {avg_return:.2%}")
+        if self.fee_bps > 0:
+            print(f"  （以上收益均已扣除单边 {self.fee_bps:g} bps 交易成本）")
         return result
 
     def create_visualization(self, strategy_name, data_loader):
@@ -252,18 +277,23 @@ class StrategyRunner:
         # 创建DataFrame
         df = pd.DataFrame(self.results)
 
-        # 重新排列列顺序
+        # 列顺序；reindex 兼容旧结果缺新列（如 fee_bps）的情况，缺失填 NaN
         columns_order = [
-            'strategy_name', 'display_name', 'strategy_type', 'cumulative_return', 'annualized_return',
-            'max_drawdown', 'total_trades', 'win_rate', 'avg_trade_return', 'parameters'
+            'strategy_name', 'display_name', 'strategy_type', 'cumulative_return',
+            'annualized_return', 'annualized_volatility', 'sharpe_ratio',
+            'max_drawdown', 'total_trades', 'win_rate', 'avg_trade_return',
+            'fee_bps', 'parameters'
         ]
-        df = df[columns_order]
+        df = df.reindex(columns=columns_order)
 
         # 格式化数值列（cumulative_return 是乘数，需减 1 转为收益率）
-        numeric_cols = ['annualized_return', 'max_drawdown', 'win_rate', 'avg_trade_return']
-        for col in numeric_cols:
+        percent_cols = ['annualized_return', 'annualized_volatility', 'max_drawdown', 'win_rate', 'avg_trade_return']
+        for col in percent_cols:
             if col in df.columns:
                 df[col] = df[col].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+        for col in ['sharpe_ratio']:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
         if 'cumulative_return' in df.columns:
             df['cumulative_return'] = df['cumulative_return'].apply(lambda x: f"{x - 1:.2%}" if pd.notnull(x) else "")
 
@@ -308,6 +338,16 @@ class StrategyRunner:
         except ValueError:
             plot_dir_display = plot_dir.name + "/"
 
+        # 数据范围从任一策略的实际数据取（所有策略共用同一次 load_data）
+        data_range_text = "N/A"
+        if self.strategy_data:
+            processed = next(iter(self.strategy_data.values())).get("processed_data") or {}
+            dates = processed.get("Date")
+            if dates is not None and len(dates) > 0:
+                first = pd.Timestamp(dates[0]).date()
+                last = pd.Timestamp(dates[-1]).date()
+                data_range_text = f"{first} ~ {last}"
+
         finite_cumulative = [
             result for result in self.results
             if np.isfinite(result['cumulative_return'])
@@ -338,6 +378,11 @@ class StrategyRunner:
             if best_annualized is not None else "N/A"
         )
 
+        fee_note = (
+            f"（收益已扣除单边 {self.fee_bps:g} bps 交易成本）"
+            if self.fee_bps > 0 else ""
+        )
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -358,7 +403,7 @@ class StrategyRunner:
         <body>
             <h1>策略回测报告</h1>
             <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p>数据范围: 最近5年</p>
+            <p>数据范围: {data_range_text}{fee_note}</p>
 
             <h2>策略性能汇总</h2>
             {df.to_html(index=False, classes='dataframe')}

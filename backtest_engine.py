@@ -13,8 +13,19 @@ class BacktestEngine:
         "entry_date", "exit_date", "type", "return",
     ]
 
-    def __init__(self, strategy_core):
+    def __init__(self, strategy_core, fee_bps=0.0):
+        """
+        Args:
+            strategy_core: 已生成 processed_data 的策略实例
+            fee_bps: 单边交易成本，单位万分之一（bps），按每次调仓的比例收取。
+                0（默认）= 不计成本，结果与旧版完全一致。
+                例：fee_bps=5 表示每次换手 1 单位仓位收 0.05%。
+        """
         self.strategy = strategy_core
+        fee = float(fee_bps)
+        if not np.isfinite(fee) or fee < 0:
+            raise ValueError(f"fee_bps 必须是非负数，收到 {fee_bps!r}")
+        self.fee_rate = fee / 10000.0
 
     def _validated_arrays(self):
         processed = self.strategy.processed_data
@@ -48,6 +59,10 @@ class BacktestEngine:
         Position[i] 表示从 ExecutionPrice[i] 到 ExecutionPrice[i+1]
         这一段的持仓。当前策略约定为 T 日收盘出信号、T+1 日开盘成交，
         因此 ExecutionPrice 使用开盘价，收益按开盘到开盘计算。
+
+        交易成本：若 fee_rate > 0，在持仓发生变化的 bar 按换手比例
+        |Position[i] - Position[i-1]| × fee_rate 扣减当期策略收益
+        （期初视为空仓）。get_trades() 的单笔收益仍是毛收益，未摊入费用。
         """
         if self.strategy.processed_data is None:
             return None
@@ -55,7 +70,14 @@ class BacktestEngine:
         execution_price, position = self._validated_arrays()
         returns = np.zeros_like(execution_price, dtype=float)
         returns[:-1] = execution_price[1:] / execution_price[:-1] - 1
-        strategy_returns = position * returns
+
+        if self.fee_rate > 0:
+            prev_position = np.roll(position, 1)
+            prev_position[0] = 0.0
+            costs = np.abs(position - prev_position) * self.fee_rate
+            strategy_returns = position * returns - costs
+        else:
+            strategy_returns = position * returns
         cumulative_returns = np.cumprod(1 + strategy_returns)
 
         self.strategy.processed_data.update({

@@ -17,8 +17,8 @@
         </head>
         <body>
             <h1>策略回测报告</h1>
-            <p>生成时间: 2026-08-25 22:14:32</p>
-            <p>数据范围: 最近5年</p>
+            <p>生成时间: 2026-09-18 23:48:19</p>
+            <p>数据范围: 2020-01-02 ~ 2026-09-18</p>
 
             <h2>策略性能汇总</h2>
             <table border="1" class="dataframe dataframe">
@@ -29,10 +29,13 @@
       <th>strategy_type</th>
       <th>cumulative_return</th>
       <th>annualized_return</th>
+      <th>annualized_volatility</th>
+      <th>sharpe_ratio</th>
       <th>max_drawdown</th>
       <th>total_trades</th>
       <th>win_rate</th>
       <th>avg_trade_return</th>
+      <th>fee_bps</th>
       <th>parameters</th>
     </tr>
   </thead>
@@ -41,120 +44,150 @@
       <td>EWMA_30</td>
       <td>EWMA Long-Short</td>
       <td>EWMA</td>
-      <td>92.86%</td>
-      <td>10.41%</td>
+      <td>76.99%</td>
+      <td>8.88%</td>
+      <td>16.49%</td>
+      <td>0.62</td>
       <td>-19.29%</td>
-      <td>180</td>
-      <td>37.78%</td>
-      <td>0.44%</td>
+      <td>185</td>
+      <td>37.30%</td>
+      <td>0.38%</td>
+      <td>0.0</td>
       <td>{'span': 30}</td>
     </tr>
     <tr>
       <td>EWMA_LONG_ONLY_30</td>
       <td>EWMA Long-Only</td>
       <td>EWMA_LONG_ONLY</td>
-      <td>136.72%</td>
-      <td>13.88%</td>
+      <td>124.95%</td>
+      <td>12.84%</td>
+      <td>13.63%</td>
+      <td>0.99</td>
       <td>-14.82%</td>
-      <td>90</td>
-      <td>48.89%</td>
-      <td>1.07%</td>
+      <td>92</td>
+      <td>47.83%</td>
+      <td>0.99%</td>
+      <td>0.0</td>
       <td>{'span': 30}</td>
     </tr>
     <tr>
       <td>MACD_12_26_9</td>
       <td>MACD</td>
       <td>MACD</td>
-      <td>27.85%</td>
-      <td>3.77%</td>
+      <td>24.93%</td>
+      <td>3.37%</td>
+      <td>16.54%</td>
+      <td>0.29</td>
       <td>-23.24%</td>
-      <td>135</td>
-      <td>37.78%</td>
-      <td>0.26%</td>
+      <td>136</td>
+      <td>37.50%</td>
+      <td>0.24%</td>
+      <td>0.0</td>
       <td>{'fast_period': 12, 'slow_period': 26, 'signal_period': 9}</td>
     </tr>
     <tr>
       <td>DONCHIAN_20</td>
       <td>Donchian (20)</td>
       <td>DONCHIAN</td>
-      <td>74.01%</td>
-      <td>8.71%</td>
+      <td>70.86%</td>
+      <td>8.31%</td>
+      <td>16.53%</td>
+      <td>0.58</td>
       <td>-22.67%</td>
       <td>23</td>
       <td>47.83%</td>
-      <td>2.88%</td>
+      <td>2.80%</td>
+      <td>0.0</td>
       <td>{'channel_period': 20}</td>
     </tr>
     <tr>
       <td>DONCHIAN_50</td>
       <td>Donchian (50)</td>
       <td>DONCHIAN</td>
-      <td>80.71%</td>
-      <td>9.33%</td>
+      <td>75.70%</td>
+      <td>8.76%</td>
+      <td>16.53%</td>
+      <td>0.61</td>
       <td>-27.76%</td>
-      <td>12</td>
-      <td>50.00%</td>
-      <td>8.07%</td>
+      <td>13</td>
+      <td>46.15%</td>
+      <td>7.23%</td>
+      <td>0.0</td>
       <td>{'channel_period': 50}</td>
     </tr>
     <tr>
       <td>BOLLINGER_20_2</td>
       <td>Bollinger (20, 2.0)</td>
       <td>BOLLINGER</td>
-      <td>-46.10%</td>
-      <td>-8.90%</td>
-      <td>-58.84%</td>
-      <td>28</td>
-      <td>53.57%</td>
-      <td>-2.04%</td>
+      <td>-46.43%</td>
+      <td>-8.88%</td>
+      <td>16.53%</td>
+      <td>-0.50</td>
+      <td>-59.61%</td>
+      <td>26</td>
+      <td>57.69%</td>
+      <td>-2.21%</td>
+      <td>0.0</td>
       <td>{'bb_period': 20, 'bb_std': 2.0}</td>
     </tr>
     <tr>
       <td>BOLLINGER_20_1.5</td>
       <td>Bollinger (20, 1.5)</td>
       <td>BOLLINGER</td>
-      <td>-64.45%</td>
-      <td>-14.44%</td>
-      <td>-68.41%</td>
-      <td>36</td>
-      <td>52.78%</td>
-      <td>-2.79%</td>
+      <td>-62.37%</td>
+      <td>-13.55%</td>
+      <td>16.52%</td>
+      <td>-0.83</td>
+      <td>-69.09%</td>
+      <td>34</td>
+      <td>52.94%</td>
+      <td>-2.75%</td>
+      <td>0.0</td>
       <td>{'bb_period': 20, 'bb_std': 1.5}</td>
     </tr>
     <tr>
       <td>RSI_14_30_70</td>
       <td>RSI</td>
       <td>RSI</td>
-      <td>-37.70%</td>
-      <td>-6.89%</td>
+      <td>-36.89%</td>
+      <td>-6.63%</td>
+      <td>16.37%</td>
+      <td>-0.35</td>
       <td>-62.42%</td>
       <td>11</td>
-      <td>45.45%</td>
-      <td>-5.59%</td>
+      <td>54.55%</td>
+      <td>-5.42%</td>
+      <td>0.0</td>
       <td>{'rsi_period': 14, 'oversold_threshold': 30, 'overbought_threshold': 70}</td>
     </tr>
     <tr>
       <td>TMA_5_20_60</td>
       <td>TMA (5/20/60)</td>
       <td>TMA</td>
-      <td>135.95%</td>
-      <td>13.82%</td>
-      <td>-25.85%</td>
-      <td>14</td>
-      <td>42.86%</td>
-      <td>10.77%</td>
+      <td>120.11%</td>
+      <td>12.48%</td>
+      <td>16.52%</td>
+      <td>0.82</td>
+      <td>-26.41%</td>
+      <td>15</td>
+      <td>40.00%</td>
+      <td>9.60%</td>
+      <td>0.0</td>
       <td>{'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}</td>
     </tr>
     <tr>
       <td>TMA_10_30_90</td>
       <td>TMA (10/30/90)</td>
       <td>TMA</td>
-      <td>158.30%</td>
-      <td>15.39%</td>
+      <td>161.65%</td>
+      <td>15.41%</td>
+      <td>16.51%</td>
+      <td>0.98</td>
       <td>-25.73%</td>
       <td>10</td>
       <td>50.00%</td>
-      <td>16.12%</td>
+      <td>16.29%</td>
+      <td>0.0</td>
       <td>{'tma_fast': 10, 'tma_medium': 30, 'tma_slow': 90}</td>
     </tr>
   </tbody>
@@ -163,8 +196,8 @@
             <div class="summary">
                 <h2>报告摘要</h2>
                 <p>• 测试策略总数: 10</p>
-                <p>• 最佳累计收益率: TMA_10_30_90 (158.30%)</p>
-                <p>• 最佳年化收益率: TMA_10_30_90 (15.39%)</p>
+                <p>• 最佳累计收益率: TMA_10_30_90 (161.65%)</p>
+                <p>• 最佳年化收益率: TMA_10_30_90 (15.41%)</p>
                 <p>• 图表保存位置: results/plots</p>
             </div>
         </body>

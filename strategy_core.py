@@ -299,14 +299,10 @@ class TradingStrategyCore:
         high_prices = self.high_prices
         low_prices = self.low_prices
 
-        # 计算唐奇安通道
-        upper_band = np.zeros(len(close_prices), dtype=float)
-        lower_band = np.zeros(len(close_prices), dtype=float)
-
-        for i in range(len(close_prices)):
-            start_idx = max(0, i - self.channel_period + 1)
-            upper_band[i] = np.max(high_prices[start_idx:i+1])
-            lower_band[i] = np.min(low_prices[start_idx:i+1])
+        # 计算唐奇安通道（滑窗向量化；开头不足 period 的 bar 保持扩张窗口）
+        upper_band, lower_band = self._rolling_channel(
+            high_prices, low_prices, self.channel_period
+        )
 
         # 生成交易信号（使用前一期通道值做突破判断）
         trading_signal = np.zeros(len(close_prices), dtype=float)
@@ -325,19 +321,28 @@ class TradingStrategyCore:
         return self._create_processed_data(upper_band, trading_signal, position, action_states,
                                            Donchian_Lower=lower_band)
 
+    @staticmethod
+    def _rolling_channel(high_prices, low_prices, period):
+        """滚动 N 日高低通道；开头不足 period 的 bar 用扩张窗口（与逐 bar 循环一致）。"""
+        n = len(high_prices)
+        upper = np.empty(n, dtype=float)
+        lower = np.empty(n, dtype=float)
+        warmup = min(period - 1, n)
+        for i in range(warmup):
+            upper[i] = high_prices[:i + 1].max()
+            lower[i] = low_prices[:i + 1].min()
+        if n >= period:
+            windows = np.lib.stride_tricks.sliding_window_view
+            upper[period - 1:] = windows(high_prices, period).max(axis=1)
+            lower[period - 1:] = windows(low_prices, period).min(axis=1)
+        return upper, lower
+
     def _generate_bollinger_signals(self):
         """布林带策略"""
         close_prices = self.close_prices
 
-        # 计算移动平均和标准差
-        sma = np.zeros(len(close_prices), dtype=float)
-        std = np.zeros(len(close_prices), dtype=float)
-
-        for i in range(len(close_prices)):
-            start_idx = max(0, i - self.bb_period + 1)
-            window = close_prices[start_idx:i+1]
-            sma[i] = np.mean(window)
-            std[i] = np.std(window)
+        # 计算移动平均和样本标准差（ddof=1，与 pandas/TA-Lib 惯例一致）
+        sma, std = self._rolling_mean_std(close_prices, self.bb_period)
 
         # 计算布林带
         upper_band = sma + self.bb_std * std
@@ -359,6 +364,24 @@ class TradingStrategyCore:
         return self._create_processed_data(sma, trading_signal, position, action_states,
                                            Bollinger_Upper=upper_band, Bollinger_Lower=lower_band,
                                            Bollinger_Bandwidth=bandwidth)
+
+    @staticmethod
+    def _rolling_mean_std(values, period):
+        """滚动均值与样本标准差（ddof=1）；开头不足 period 的 bar 用扩张窗口。
+        单元素窗口的样本标准差无定义，按 0 处理。"""
+        n = len(values)
+        mean = np.empty(n, dtype=float)
+        std = np.empty(n, dtype=float)
+        warmup = min(period - 1, n)
+        for i in range(warmup):
+            window = values[:i + 1]
+            mean[i] = window.mean()
+            std[i] = window.std(ddof=1) if len(window) > 1 else 0.0
+        if n >= period:
+            windows = np.lib.stride_tricks.sliding_window_view(values, period)
+            mean[period - 1:] = windows.mean(axis=1)
+            std[period - 1:] = windows.std(axis=1, ddof=1)
+        return mean, std
 
     def _calculate_rsi(self, prices, period):
         """计算 RSI 指标。"""

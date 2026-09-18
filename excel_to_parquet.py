@@ -12,6 +12,7 @@ Excel → Parquet 数据管道
 """
 
 import argparse
+import ast
 import msvcrt
 import os
 from pathlib import Path
@@ -27,7 +28,9 @@ import win32com.client
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_START_DATE = datetime(1990, 1, 1).date()
 
-SYMBOLS = [
+# 品种清单的单一数据源是同目录的 指数代码编号.txt（Python 字面量列表）。
+# 该文件缺失或解析失败时回退到内置清单，保证脚本独立可用。
+_FALLBACK_SYMBOLS = [
     "AFI.WI",
     "AGFI.WI",
     "ALFI.WI",
@@ -103,6 +106,26 @@ FIELD_NAMES = ["open", "high", "low", "close", "settle", "volume", "oi", "amt"]
 FIELD_STR = ",".join(FIELD_NAMES)
 DATE_FORMAT = "%Y-%m-%d"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _load_symbols():
+    """优先从 指数代码编号.txt 读取品种列表（Python 字面量），失败回退内置清单。"""
+    list_file = Path(__file__).resolve().parent / "指数代码编号.txt"
+    try:
+        text = list_file.read_text(encoding="utf-8")
+        # 文件可能带行尾注释（# ...），ast 只取赋值部分
+        tree = ast.parse(text)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.List):
+                symbols = [elt.value for elt in node.elts if isinstance(elt, ast.Constant)]
+                if symbols:
+                    return symbols
+    except (OSError, SyntaxError, ValueError) as exc:
+        print(f"警告: 无法解析 {list_file.name}（{exc}），使用内置品种清单")
+    return list(_FALLBACK_SYMBOLS)
+
+
+SYMBOLS = _load_symbols()
 
 # WSD 公式模板，写入时替换 {symbol} {start} {end}
 WSD_FORMULA = (

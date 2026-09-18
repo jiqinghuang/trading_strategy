@@ -4,13 +4,17 @@
 """
 
 from pathlib import Path
-import os
 import re
 import shutil
 from datetime import datetime
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+try:
+    from PIL import Image
+except ImportError:  # Pillow 缺失时跳过 webp 转换与尺寸更新，PNG 同步不受影响
+    Image = None
 
 from run_all_strategies import StrategyRunner
 
@@ -35,12 +39,63 @@ def run_strategies():
     return results
 
 
+def _png_size(path):
+    """读取 PNG 实际像素尺寸；Pillow 不可用或读取失败返回 None。"""
+    if Image is None:
+        return None
+    try:
+        with Image.open(path) as img:
+            return img.size  # (width, height)
+    except OSError:
+        return None
+
+
 def copy_plots():
-    """将图表复制到网站目录"""
+    """将图表复制到网站目录，并同步生成 webp（网站 <picture> 优先加载 webp，
+    只复制 PNG 会导致访客看到的仍是旧图）。"""
     PLOTS_DST.mkdir(parents=True, exist_ok=True)
+    sizes = {}
     for f in PLOTS_SRC.glob("*.png"):
         shutil.copy2(f, PLOTS_DST / f.name)
-    print(f"已复制图表到 {PLOTS_DST}")
+        sizes[f.stem] = _png_size(PLOTS_DST / f.name)
+        if Image is None:
+            continue
+        webp_path = PLOTS_DST / (f.stem + ".webp")
+        try:
+            with Image.open(f) as img:
+                img.save(webp_path, "WEBP", quality=90)
+        except (OSError, ValueError) as exc:
+            print(f"警告: webp 转换失败 {f.name}: {exc}")
+    if Image is None:
+        print("警告: 未安装 Pillow，已跳过 webp 转换——网站 webp 图表不会更新！")
+    else:
+        print(f"已复制图表（含 webp）到 {PLOTS_DST}")
+    return sizes
+
+
+def update_img_dimensions(sizes):
+    """按实际 PNG 尺寸更新网站 <img> 的 width/height，避免图变形或预留错位。
+    最佳努力：找不到对应图或 Pillow 不可用时警告并跳过，不阻断同步。"""
+    if Image is None or not sizes:
+        return
+    html = HTML_PATH.read_text(encoding="utf-8")
+    patched = 0
+    for name, (width, height) in sizes.items():
+        if width is None:
+            continue
+        pattern = (
+            r'(<img src="assets/plots/' + re.escape(name) + r'\.png"[^>]*'
+            r'width=")\d+(" height=")\d+(")'
+        )
+        html, n = re.subn(
+            pattern, rf"\g<1>{width}\g<2>{height}\g<3>", html, count=1
+        )
+        if n:
+            patched += n
+    if patched != len(sizes):
+        print(f"提示: 图表尺寸更新 {patched}/{len(sizes)} 张（其余为页面暂无或尺寸未变化）")
+    HTML_PATH.write_text(html, encoding="utf-8")
+    print(f"图片尺寸已核对: {HTML_PATH.name}")
 
 
 def update_html():
@@ -55,12 +110,16 @@ def update_html():
 
     # 1. 更新最高累积收益统计
     best_return = round(float(df.iloc[0]["cumulative_return"].strip("%")))
-    html = re.sub(
+    html, n_stat = re.subn(
         r'(<div class="stat-number">)-?\d+(<span style="font-size:1\.2rem">%</span>)',
         rf"\g<1>{best_return}\g<2>",
         html,
         count=1,
     )
+    if n_stat != 1:
+        raise ValueError(
+            f"未找到网站顶部统计数字（匹配到 {n_stat} 处），页面结构可能已变化"
+        )
 
     # 2. 更新性能表
     # 类型判断：正收益用 highlight，负收益用 negative
@@ -151,13 +210,14 @@ def main():
         print("没有成功运行的策略，退出")
         return
 
-    # 2. 复制图表
+    # 2. 复制图表（含 webp）
     print("\n[2/3] 复制图表到网站...")
-    copy_plots()
+    sizes = copy_plots()
 
-    # 3. 更新 HTML
+    # 3. 更新网站数据
     print("\n[3/3] 更新网站数据...")
     update_html()
+    update_img_dimensions(sizes)
 
     print("\n" + "=" * 60)
     print("全部完成! 两个文件夹已同步更新。")
