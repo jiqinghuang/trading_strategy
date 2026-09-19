@@ -341,7 +341,8 @@ class TradingStrategyCore:
         """布林带策略"""
         close_prices = self.close_prices
 
-        # 计算移动平均和样本标准差（ddof=1，与 pandas/TA-Lib 惯例一致）
+        # 计算移动平均和样本标准差（ddof=1，与 pandas 惯例一致；
+        # TA-Lib 的 BBANDS/STDDEV 用总体标准差 ddof=0，此处有意不同）
         sma, std = self._rolling_mean_std(close_prices, self.bb_period)
 
         # 计算布林带

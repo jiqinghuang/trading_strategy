@@ -28,11 +28,12 @@ HTML_PATH = WEBSITE_DIR / "project-quant-trading.html"
 
 
 def run_strategies():
-    """运行所有策略并生成结果"""
+    """运行所有策略并生成结果（网站发布口径：已扣单边 3bps 交易成本的净值）"""
     plt.rcParams["font.sans-serif"] = ["SimHei"]
     plt.rcParams["axes.unicode_minus"] = False
 
-    runner = StrategyRunner(data_path=str(TRADING_DIR / "data" / "AUFI_WI.parquet"), output_dir=str(TRADING_DIR / "results"))
+    runner = StrategyRunner(data_path=str(TRADING_DIR / "data" / "AUFI_WI.parquet"),
+                            output_dir=str(TRADING_DIR / "results"), fee_bps=3)
     results = runner.run_all_strategies()
     if results:
         runner.save_to_excel()
@@ -63,7 +64,7 @@ def copy_plots():
         webp_path = PLOTS_DST / (f.stem + ".webp")
         try:
             with Image.open(f) as img:
-                img.save(webp_path, "WEBP", quality=90)
+                img.save(webp_path, "WEBP", quality=80)
         except (OSError, ValueError) as exc:
             print(f"警告: webp 转换失败 {f.name}: {exc}")
     if Image is None:
@@ -124,45 +125,51 @@ def update_html():
     # 2. 更新性能表
     # 类型判断：正收益用 highlight，负收益用 negative
     def cell_class(val):
-        v = float(val.strip("%"))
+        """兼容 Excel 回读的两种类型：字符串（'12.33%'）与数值（0.81/NaN）。"""
+        if pd.isna(val):
+            return ""
+        s = str(val).strip().rstrip("%")
+        if s in ("", "nan"):
+            return ""
+        v = float(s)
         return "highlight" if v > 0 else ("negative" if v < 0 else "")
+
+    def fmt_td(val):
+        """空值（无交易策略的 Sharpe 等）渲染为空单元格，不显示 nan。"""
+        if pd.isna(val) or str(val).strip() in ("", "nan"):
+            return "<td></td>"
+        cls = cell_class(val)
+        return f'<td class="{cls}">{val}</td>' if cls else f"<td>{val}</td>"
 
     rows_html = ""
     for _, row in df.iterrows():
         name = row.get("display_name", row["strategy_name"])
-        cum = row["cumulative_return"]
-        ann = row["annualized_return"]
-        dd = row["max_drawdown"]
         trades = int(row["total_trades"])
-        wr = row["win_rate"]
-        avg = row["avg_trade_return"]
-
-        cum_cls = cell_class(cum)
-        ann_cls = cell_class(ann)
-        dd_cls = cell_class(dd)
-
-        cum_td = f'<td class="{cum_cls}">{cum}</td>' if cum_cls else f"<td>{cum}</td>"
-        ann_td = f'<td class="{ann_cls}">{ann}</td>' if ann_cls else f"<td>{ann}</td>"
-        dd_td = f'<td class="{dd_cls}">{dd}</td>' if dd_cls else f"<td>{dd}</td>"
 
         rows_html += f"""            <tr>
               <td><strong>{name}</strong></td>
-              {cum_td}
-              {ann_td}
-              {dd_td}
+              {fmt_td(row["cumulative_return"])}
+              {fmt_td(row["annualized_return"])}
+              {fmt_td(row["annualized_volatility"])}
+              {fmt_td(row["sharpe_ratio"])}
+              {fmt_td(row["max_drawdown"])}
               <td>{trades}</td>
-              <td>{wr}</td>
-              <td>{avg}</td>
+              {fmt_td(row["win_rate"])}
+              {fmt_td(row["avg_trade_return"])}
             </tr>
 """
 
-    # 替换 tbody 内容
-    html = re.sub(
-        r"(<tbody>)\s*\n(.*?)\s*(</tbody>)",
+    # 替换 tbody 内容（锚定到 id="perf-table"，页面新增其他表格也不会误伤）
+    html, n_tbody = re.subn(
+        r'(<table[^>]*id="perf-table"[^>]*>[\s\S]*?<tbody>)\s*\n(.*?)\s*(</tbody>)',
         f"\\1\n{rows_html}          \\3",
         html,
         flags=re.DOTALL,
     )
+    if n_tbody != 1:
+        raise ValueError(
+            f"未找到唯一的绩效表 tbody（匹配到 {n_tbody} 处），页面结构可能已变化"
+        )
 
     # 3. 更新图片说明中的累积收益；无旧收益文本时也要补上
     for _, row in df.iterrows():
