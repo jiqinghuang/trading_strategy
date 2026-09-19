@@ -37,7 +37,12 @@ def run_strategies():
     results = runner.run_all_strategies()
     if results:
         runner.save_to_excel()
-    return results
+
+    # 统计卡元数据：策略数与实际回测年限（日历天/365.25）
+    dates = next(iter(runner.strategy_data.values()))["processed_data"]["Date"]
+    days = (pd.Timestamp(dates[-1]) - pd.Timestamp(dates[0])).days
+    meta = {"n_strategies": len(results), "years": days / 365.25}
+    return results, meta
 
 
 def _png_size(path):
@@ -99,18 +104,26 @@ def update_img_dimensions(sizes):
     print(f"图片尺寸已核对: {HTML_PATH.name}")
 
 
-def update_html():
+def _parse_pct(val):
+    """兼容 Excel 回读的 '12.33%' 字符串与数值类型，统一转 float（空值→NaN）。"""
+    if pd.isna(val):
+        return float("nan")
+    s = str(val).strip().rstrip("%")
+    return float("nan") if s in ("", "nan") else float(s)
+
+
+def update_html(meta):
     """读取 Excel 结果，更新 projects.html 中的数据"""
     df = pd.read_excel(EXCEL_PATH, sheet_name="Summary")
-    # 将百分比字符串转为数字再排序，避免字符串排序错误（如 "99%" 排在 "150%" 前面）
-    df["_return_num"] = df["cumulative_return"].str.strip("%").astype(float)
+    # 数值化排序，避免字符串排序错误（如 "99%" 排在 "150%" 前面）
+    df["_return_num"] = df["cumulative_return"].map(_parse_pct)
     df = df.sort_values("_return_num", ascending=False).reset_index(drop=True)
 
     with open(HTML_PATH, "r", encoding="utf-8") as f:
         html = f.read()
 
     # 1. 更新最高累积收益统计
-    best_return = round(float(df.iloc[0]["cumulative_return"].strip("%")))
+    best_return = round(_parse_pct(df.iloc[0]["cumulative_return"]))
     html, n_stat = re.subn(
         r'(<div class="stat-number">)-?\d+(<span style="font-size:1\.2rem">%</span>)',
         rf"\g<1>{best_return}\g<2>",
@@ -121,6 +134,29 @@ def update_html():
         raise ValueError(
             f"未找到网站顶部统计数字（匹配到 {n_stat} 处），页面结构可能已变化"
         )
+
+    # 1.5 更新统计卡（策略数 / 品种数 / 回测年限），消除手写数字漂移
+    def set_card(html, label_cn, value):
+        """按卡片标签锚定更新 stat-number；预期恰好匹配 1 处。"""
+        pattern = (
+            r'(<div class="stat-number">)[^<]+'
+            r'(</div>\s*<div class="stat-label"><span data-lang="cn">' + re.escape(label_cn) + r'</span>)'
+        )
+        html, n = re.subn(pattern, rf"\g<1>{value}\g<2>", html)
+        if n != 1:
+            raise ValueError(f"统计卡「{label_cn}」预期匹配 1 处，实际 {n} 处")
+        return html
+
+    n_symbols = len(list((TRADING_DIR / "data").glob("*.parquet")))
+    html = set_card(html, "策略算法", meta["n_strategies"])
+    html = set_card(html, "商品品种", n_symbols)
+    html, n_year = re.subn(
+        r'(<div class="stat-number">)[\d.]+(<span style="font-size:1\.2rem">yr</span>)',
+        rf"\g<1>{meta['years']:.1f}\g<2>",
+        html,
+    )
+    if n_year != 1:
+        raise ValueError(f"回测周期卡预期匹配 1 处，实际 {n_year} 处")
 
     # 2. 更新性能表
     # 类型判断：正收益用 highlight，负收益用 negative
@@ -212,7 +248,7 @@ def main():
 
     # 1. 运行策略
     print("\n[1/3] 运行策略...")
-    results = run_strategies()
+    results, meta = run_strategies()
     if not results:
         print("没有成功运行的策略，退出")
         return
@@ -223,7 +259,7 @@ def main():
 
     # 3. 更新网站数据
     print("\n[3/3] 更新网站数据...")
-    update_html()
+    update_html(meta)
     update_img_dimensions(sizes)
 
     print("\n" + "=" * 60)

@@ -37,7 +37,7 @@ trading_strategy/
 ├── backtest_engine.py             # 回测引擎: 收益计算与交易记录
 ├── visualization.py               # 可视化模块: Matplotlib 图表
 ├── excel_to_parquet.py            # Wind 数据获取: Excel COM 管道
-├── test_strategies.py             # 策略测试: 多策略快速对比
+├── demo_all_strategies.py             # 策略测试: 多策略快速对比
 ├── test_regressions.py            # 回归测试: 核心逻辑与输出边界
 ├── run_all_strategies.py          # 批量运行: 全策略回测与报告生成
 ├── update_local_website.py        # 网站同步: 运行策略并更新本地网站
@@ -279,7 +279,7 @@ cumulative_returns = cumprod(1 + strategy_returns)
 
 ---
 
-#### `test_strategies.py` — 策略快速测试
+#### `demo_all_strategies.py` — 策略快速测试
 
 用于开发调试阶段快速验证所有策略的基本表现。
 
@@ -318,8 +318,12 @@ cumulative_returns = cumprod(1 + strategy_returns)
 
 **HTML 更新逻辑:**
 1. 更新顶部最高累计收益统计数字
-2. 替换性能汇总表格（按累计收益降序排列）
-3. 更新图片画廊中的收益说明文字（中英文双语）
+2. 更新统计卡（策略数/品种数/回测年限，由脚本自动计算，不再手写）
+3. 替换性能汇总表格（按累计收益降序排列，9 列含年化波动率与 Sharpe）
+4. 更新图片画廊中的收益说明文字（中英文双语）
+
+> **网站发布口径**：`run_strategies()` 以 `fee_bps=3` 运行，网站发布的是**扣除单边
+> 3bps 交易成本后的净值**，页面 caption 已双语标注。
 
 **CLI 用法:**
 ```bash
@@ -347,7 +351,7 @@ excel_to_parquet.py
 ├── polars
 └── win32com.client (pywin32)
 
-test_strategies.py
+demo_all_strategies.py
 ├── data_handler.py
 ├── strategy_core.py
 ├── backtest_engine.py
@@ -410,7 +414,7 @@ python main.py
 ### 6.2 策略快速测试
 
 ```bash
-python test_strategies.py
+python demo_all_strategies.py
 ```
 
 运行 10 组策略配置，输出累计收益率与交易次数排名；任一策略失败都会以非零状态结束。

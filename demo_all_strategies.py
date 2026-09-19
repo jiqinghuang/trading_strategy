@@ -8,8 +8,8 @@ from visualization import StrategyVisualizer
 _BASE_DIR = Path(__file__).resolve().parent
 _DATA_PATH = _BASE_DIR / "data" / "AUFI_WI.parquet"
 
-def test_all_strategies():
-    """测试所有可用的交易策略"""
+def demo_all_strategies():
+    """演示：跑全部策略并排名（无断言，非 CI 测试；测试在 test_regressions.py）"""
 
     # 初始化数据处理（自动取最新交易日）
     data_loader = DataHandler.from_parquet(_DATA_PATH, start_date=datetime(2020, 1, 1))
@@ -132,8 +132,8 @@ def visualize_strategy(strategy_type='MACD', **kwargs):
     return strategy
 
 if __name__ == "__main__":
-    print("开始测试所有交易策略...")
-    test_all_strategies()
+    print("开始演示所有交易策略...")
+    demo_all_strategies()
 
     # 可以选择可视化某个策略
     # print("\n可视化MACD策略...")
