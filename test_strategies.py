@@ -1,6 +1,5 @@
 from pathlib import Path
 from datetime import datetime
-import polars as pl
 from data_handler import DataHandler
 from strategy_core import TradingStrategyCore
 from backtest_engine import BacktestEngine
@@ -12,15 +11,8 @@ _DATA_PATH = _BASE_DIR / "data" / "AUFI_WI.parquet"
 def test_all_strategies():
     """测试所有可用的交易策略"""
 
-    # 初始化数据处理
-    data_loader = DataHandler(_DATA_PATH, file_type='parquet')
-    data_loader.preprocess_data(
-        start_date=datetime(2020, 1, 1),
-        end_date=datetime.strptime(
-            pl.scan_parquet(_DATA_PATH).select(pl.col("date").max()).collect().item(),
-            "%Y-%m-%d"
-        )
-    )
+    # 初始化数据处理（自动取最新交易日）
+    data_loader = DataHandler.from_parquet(_DATA_PATH, start_date=datetime(2020, 1, 1))
 
     strategies_to_test = [
         # (策略类型, 参数, 描述)
@@ -119,15 +111,8 @@ def test_all_strategies():
 
 def visualize_strategy(strategy_type='MACD', **kwargs):
     """可视化特定策略"""
-    # 初始化数据处理
-    data_loader = DataHandler(_DATA_PATH, file_type='parquet')
-    data_loader.preprocess_data(
-        start_date=datetime(2020, 1, 1),
-        end_date=datetime.strptime(
-            pl.scan_parquet(_DATA_PATH).select(pl.col("date").max()).collect().item(),
-            "%Y-%m-%d"
-        )
-    )
+    # 初始化数据处理（自动取最新交易日）
+    data_loader = DataHandler.from_parquet(_DATA_PATH, start_date=datetime(2020, 1, 1))
 
     # 初始化策略
     strategy = TradingStrategyCore(data_loader, strategy_type=strategy_type, **kwargs)

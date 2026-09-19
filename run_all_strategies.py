@@ -2,9 +2,8 @@ import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from datetime import date as date_type, datetime
+from datetime import datetime
 import matplotlib.pyplot as plt
-import polars as pl
 from data_handler import DataHandler
 from strategy_core import TradingStrategyCore
 from backtest_engine import BacktestEngine
@@ -40,42 +39,16 @@ class StrategyRunner:
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.output_dir / "plots", exist_ok=True)
 
-    @staticmethod
-    def _coerce_datetime(value, label):
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, date_type):
-            return datetime.combine(value, datetime.min.time())
-        try:
-            return datetime.strptime(str(value), "%Y-%m-%d")
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{label} 无法解析为日期: {value!r}") from exc
-
     def load_data(self):
-        """加载并校验回测数据。"""
+        """加载并校验回测数据（起始固定 2020-01-01，截止取最新交易日）。"""
         if not self.data_path.is_file():
             raise FileNotFoundError(f"找不到行情文件: {self.data_path}")
 
-        max_date_raw = pl.scan_parquet(self.data_path).select(
-            pl.col("date").max()
-        ).collect().item()
-        if max_date_raw is None:
-            raise ValueError(f"行情文件没有有效日期: {self.data_path}")
-
-        end_date = self._coerce_datetime(max_date_raw, "最大日期")
-        start_date = datetime(2020, 1, 1)
-        if start_date > end_date:
-            raise ValueError(
-                f"回测起始日期 {start_date.date()} 晚于数据最大日期 {end_date.date()}"
-            )
-
-        print(f"加载数据: {start_date.date()} 至 {end_date.date()}")
-
-        data_loader = DataHandler(self.data_path, file_type="parquet")
-        data_loader.preprocess_data(
-            start_date=start_date,
-            end_date=end_date,
+        data_loader = DataHandler.from_parquet(
+            self.data_path, start_date=datetime(2020, 1, 1)
         )
+        dates = data_loader.dates
+        print(f"加载数据: {pd.Timestamp(dates[0]).date()} 至 {pd.Timestamp(dates[-1]).date()}")
         return data_loader
 
     def run_strategy(self, data_loader, strategy_type, strategy_name, display_name=None, **params):

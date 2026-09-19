@@ -1,0 +1,13 @@
+# 核心回测
+numpy
+pandas
+polars
+matplotlib
+openpyxl
+pyarrow
+
+# Wind 数据获取（excel_to_parquet.py，仅 Windows 生效）
+pywin32 ; sys_platform == "win32"
+
+# 网站同步（update_local_website.py 的 webp 转换与图片尺寸读取）
+pillow

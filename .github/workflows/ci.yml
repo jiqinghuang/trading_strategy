@@ -15,6 +15,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install numpy pandas polars matplotlib openpyxl pyarrow
+        run: pip install -r requirements.txt
       - name: Run regression tests
         run: python -m unittest -v test_regressions

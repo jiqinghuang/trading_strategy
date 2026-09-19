@@ -1,5 +1,6 @@
 import importlib.util
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -219,6 +220,32 @@ class RegressionTests(unittest.TestCase):
             self.assertTrue((output_dir / "strategy_results.xlsx").exists())
         finally:
             shutil.rmtree(output_dir)
+
+    def test_from_parquet_loads_through_latest_date(self):
+        dates = pd.bdate_range("2026-01-01", periods=30).strftime("%Y-%m-%d")
+        raw = pd.DataFrame({
+            "date": dates,
+            "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0,
+            "settle": 1.0, "volume": 1.0,
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "XFI_WI.parquet"
+            raw.to_parquet(path)
+
+            # end_date 缺省 → 自动取最新交易日
+            handler = DataHandler.from_parquet(path)
+            self.assertEqual(len(handler.close), len(raw))
+
+            # start_date 接受 "YYYY-MM-DD" 字符串
+            handler_cut = DataHandler.from_parquet(path, start_date="2026-01-20")
+            expected = raw[raw["date"] >= "2026-01-20"]
+            self.assertEqual(len(handler_cut.close), len(expected))
+            self.assertEqual(
+                [str(d)[:10] for d in handler_cut.dates[:1]], ["2026-01-20"]
+            )
+
+            with self.assertRaisesRegex(TypeError, "无法解析为日期"):
+                DataHandler.from_parquet(path, start_date="not-a-date")
 
     def test_runner_resets_state_between_runs(self):
         result = {"strategy_name": "dummy", "strategy_type": "EWMA"}

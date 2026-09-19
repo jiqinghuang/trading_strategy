@@ -45,14 +45,43 @@ class DataHandler:
 
     @staticmethod
     def _normalize_boundary(value, label):
-        """将 date/datetime 边界统一为 datetime。"""
+        """将 date/datetime/"YYYY-MM-DD" 边界统一为 datetime。"""
         if value is None:
             return None
         if isinstance(value, datetime):
             return value
         if isinstance(value, date_type):
             return datetime.combine(value, datetime.min.time())
+        if isinstance(value, str):
+            try:
+                return datetime.strptime(value.strip(), "%Y-%m-%d")
+            except ValueError as exc:
+                raise TypeError(
+                    f"{label} 无法解析为日期（需 YYYY-MM-DD）: {value!r}"
+                ) from exc
         raise TypeError(f"{label} 必须是 datetime/date/None，收到 {type(value).__name__}")
+
+    @classmethod
+    def from_parquet(cls, data_path, start_date=None, end_date=None):
+        """加载 parquet 并完成预处理，返回就绪的 DataHandler 实例。
+
+        end_date 缺省时自动取数据最新交易日，免去各调用点重复
+        "scan 最大日期 → 解析 → preprocess" 的样板。边界接受
+        datetime/date/"YYYY-MM-DD" 字符串。
+        """
+        if end_date is None:
+            max_date = (
+                pl.scan_parquet(str(data_path))
+                .select(pl.col("date").max())
+                .collect()
+                .item()
+            )
+            if max_date is None:
+                raise ValueError(f"行情文件没有有效日期: {data_path}")
+            end_date = max_date
+        handler = cls(str(data_path), file_type="parquet")
+        handler.preprocess_data(start_date=start_date, end_date=end_date)
+        return handler
 
     def preprocess_data(self, start_date=None, end_date=None):
         """预处理数据。

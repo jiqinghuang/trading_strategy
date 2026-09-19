@@ -386,6 +386,13 @@ run_all_strategies.py
 
 ## 6. 运行方式
 
+### 6.0 环境安装
+
+```bash
+pip install -r requirements.txt
+# pywin32 仅在 Windows 生效（Wind 数据获取需要）；pillow 用于网站同步的 webp 转换
+```
+
 ### 6.1 单策略演示
 
 ```bash
