@@ -181,6 +181,16 @@ class TradingStrategyCore:
             prev[0] = fill
         return prev
 
+    @staticmethod
+    def _crossed_above(a_now, a_prev, b_now, b_prev):
+        """a 上穿 b：本期 a > b，且前期 a <= b。全策略统一的交叉定义。"""
+        return (a_now > b_now) & (a_prev <= b_prev)
+
+    @staticmethod
+    def _crossed_below(a_now, a_prev, b_now, b_prev):
+        """a 下穿 b：本期 a < b，且前期 a >= b。全策略统一的交叉定义。"""
+        return (a_now < b_now) & (a_prev >= b_prev)
+
     def _generate_position_from_signals(self, trading_signal, allow_short=True):
         """根据交易信号生成持仓和行动状态
 
@@ -242,8 +252,8 @@ class TradingStrategyCore:
         prev_close = self._prev(close_prices)
         prev_ewma = self._prev(ewma)
         trading_signal = np.zeros(len(close_prices), dtype=float)
-        trading_signal[(close_prices > ewma) & (prev_close < prev_ewma)] = 1
-        trading_signal[(close_prices < ewma) & (prev_close > prev_ewma)] = -1
+        trading_signal[self._crossed_above(close_prices, prev_close, ewma, prev_ewma)] = 1
+        trading_signal[self._crossed_below(close_prices, prev_close, ewma, prev_ewma)] = -1
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=allow_short)
         return self._create_processed_data(ewma, trading_signal, position, action_states)
 
@@ -282,8 +292,8 @@ class TradingStrategyCore:
         prev_signal = self._prev(signal_line)
 
         # MACD上穿信号线为买入，下穿为卖出
-        trading_signal[(macd_line > signal_line) & (prev_macd <= prev_signal)] = 1
-        trading_signal[(macd_line < signal_line) & (prev_macd >= prev_signal)] = -1
+        trading_signal[self._crossed_above(macd_line, prev_macd, signal_line, prev_signal)] = 1
+        trading_signal[self._crossed_below(macd_line, prev_macd, signal_line, prev_signal)] = -1
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -310,8 +320,8 @@ class TradingStrategyCore:
         # 上破上轨买入，下破下轨卖出
         # fix: 用 prev_upper/prev_lower 而非 upper_band/lower_band
         # upper_band[i] >= high[i] >= close[i]，导致条件永远不成立
-        trading_signal[(close_prices > prev_upper) & (prev_close <= prev_upper)] = 1
-        trading_signal[(close_prices < prev_lower) & (prev_close >= prev_lower)] = -1
+        trading_signal[self._crossed_above(close_prices, prev_close, prev_upper, prev_upper)] = 1
+        trading_signal[self._crossed_below(close_prices, prev_close, prev_lower, prev_lower)] = -1
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -354,8 +364,8 @@ class TradingStrategyCore:
         prev_upper = self._prev(upper_band)
 
         # 价格从前一期下轨向上突破买入，从前一期上轨向下跌破卖出
-        trading_signal[(close_prices > prev_lower) & (prev_close <= prev_lower)] = 1
-        trading_signal[(close_prices < prev_upper) & (prev_close >= prev_upper)] = -1
+        trading_signal[self._crossed_above(close_prices, prev_close, prev_lower, prev_lower)] = 1
+        trading_signal[self._crossed_below(close_prices, prev_close, prev_upper, prev_upper)] = -1
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -436,8 +446,8 @@ class TradingStrategyCore:
         prev_rsi = self._prev(rsi)
 
         # RSI从超卖区回升买入，从超买区回落卖出
-        trading_signal[(rsi > self.oversold_threshold) & (prev_rsi <= self.oversold_threshold)] = 1
-        trading_signal[(rsi < self.overbought_threshold) & (prev_rsi >= self.overbought_threshold)] = -1
+        trading_signal[self._crossed_above(rsi, prev_rsi, self.oversold_threshold, self.oversold_threshold)] = 1
+        trading_signal[self._crossed_below(rsi, prev_rsi, self.overbought_threshold, self.overbought_threshold)] = -1
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)

@@ -16,7 +16,7 @@ try:
 except ImportError:  # Pillow 缺失时跳过 webp 转换与尺寸更新，PNG 同步不受影响
     Image = None
 
-from run_all_strategies import StrategyRunner
+from run_all_strategies import STRATEGIES, StrategyRunner
 
 # 路径配置
 TRADING_DIR = Path(__file__).resolve().parent
@@ -24,6 +24,10 @@ WEBSITE_DIR = TRADING_DIR.parent / "jiqinghuang.github.io"
 PLOTS_SRC = TRADING_DIR / "results" / "plots"
 PLOTS_DST = WEBSITE_DIR / "assets" / "plots"
 HTML_PATH = WEBSITE_DIR / "project-quant-trading.html"
+
+# 策略图命名约定：大写字母开头（EWMA_30、BOLLINGER_20_1.5 等）。
+# 孤儿清理只碰这一类文件；margin_model_*、手工放置的图等不受影响。
+STRATEGY_PLOT_STEM_RE = re.compile(r"^[A-Z][A-Z0-9_.]*$")
 
 
 def run_strategies():
@@ -75,6 +79,27 @@ def copy_plots():
     else:
         print(f"已复制图表（含 webp）到 {PLOTS_DST}")
     return sizes
+
+
+def cleanup_stale_plots():
+    """删除网站 plots 目录中已不在当前策略清单里的旧策略图（png+webp 一并删）。
+
+    只按 STRATEGY_PLOT_STEM_RE 识别同步生成的策略图；margin_model_* 等
+    其他来源的图表不在清理范围，避免误删。返回删除的文件名列表。"""
+    keep = {name for _, name, _, _ in STRATEGIES}
+    removed = []
+    for f in sorted(PLOTS_DST.glob("*")):
+        if f.suffix.lower() not in (".png", ".webp"):
+            continue
+        if f.stem in keep or not STRATEGY_PLOT_STEM_RE.match(f.stem):
+            continue
+        f.unlink()
+        removed.append(f.name)
+    if removed:
+        print(f"已清理不再引用的旧图表 {len(removed)} 个: {', '.join(removed)}")
+    else:
+        print("plots 目录无孤儿图表")
+    return removed
 
 
 def update_img_dimensions(sizes):
@@ -236,9 +261,10 @@ def main():
     print("\n[1/3] 运行策略...")
     results, meta = run_strategies()
 
-    # 2. 复制图表（含 webp）
+    # 2. 复制图表（含 webp），并清理已不在策略清单里的旧图
     print("\n[2/3] 复制图表到网站...")
     sizes = copy_plots()
+    cleanup_stale_plots()
 
     # 3. 更新网站数据
     print("\n[3/3] 更新网站数据...")
