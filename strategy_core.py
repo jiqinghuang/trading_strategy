@@ -229,14 +229,11 @@ class TradingStrategyCore:
 
     def generate_signals(self):
         """策略信号生成入口"""
-        # 构建策略方法名
-        method_name = f'_generate_{self.strategy_type.lower()}_signals'
-        # 检查方法是否存在
-        if not hasattr(self, method_name):
+        # __init__ 已用 _SUPPORTED_STRATEGIES 校验过，此处的 getattr 兜底不会触发
+        method = getattr(self, f'_generate_{self.strategy_type.lower()}_signals', None)
+        if method is None:
             raise ValueError(f"不支持的策略类型: {self.strategy_type}")
-        # 获取并执行策略方法
-        strategy_method = getattr(self, method_name)
-        return strategy_method()
+        return method()
     
     def _generate_ewma_signals(self, allow_short=True):
         """EWMA策略信号生成"""

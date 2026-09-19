@@ -21,7 +21,7 @@ class DataHandler:
     def __init__(self, data_path, file_type="csv"):
         """
         :param data_path: 文件路径
-        :param file_type: 文件类型 ('csv' 或 'parquet')
+        :param file_type: 文件类型 ('csv' 或 'parquet')，列校验在 preprocess_data 统一进行
         """
         self.file_type = file_type
         if file_type == "csv":
@@ -30,10 +30,6 @@ class DataHandler:
             self.raw_data = pl.read_parquet(data_path)
         else:
             raise ValueError("不支持的file_type类型，请使用'csv'或'parquet'")
-
-        missing = self.REQUIRED_COLUMNS - set(self.raw_data.columns)
-        if missing:
-            raise ValueError(f"数据缺少必需列: {sorted(missing)}")
 
         self.dates = None
         self.open = None
@@ -161,16 +157,17 @@ class DataHandler:
         if self.raw_data.is_empty():
             raise ValueError("日期筛选后没有可用于回测的数据")
 
-        for col in sorted(self.REQUIRED_NUMERIC_COLUMNS):
+        # 数值列统一为 Float64，避免整数价格导致指标截断或无法写入 NaN。
+        # 必需列若不是数值类型，在此处报错；非必需的非数值列保持原样。
+        for col in self.raw_data.columns:
+            if col == "date":
+                continue
             dtype = self.raw_data.schema[col]
             if not dtype.is_numeric():
-                raise ValueError(
-                    f"必需数值列 {col} 不是数值类型（dtype={dtype}）"
-                )
-
-        # 数值列统一为 Float64，避免整数价格导致指标截断或无法写入 NaN。
-        for col in self.raw_data.columns:
-            if col == "date" or not self.raw_data.schema[col].is_numeric():
+                if col in self.REQUIRED_NUMERIC_COLUMNS:
+                    raise ValueError(
+                        f"必需数值列 {col} 不是数值类型（dtype={dtype}）"
+                    )
                 continue
             expr = pl.col(col).cast(pl.Float64).fill_nan(None)
             if col in self.PRICE_COLUMNS:

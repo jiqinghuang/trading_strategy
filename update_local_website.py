@@ -23,7 +23,6 @@ TRADING_DIR = Path(__file__).resolve().parent
 WEBSITE_DIR = TRADING_DIR.parent / "jiqinghuang.github.io"
 PLOTS_SRC = TRADING_DIR / "results" / "plots"
 PLOTS_DST = WEBSITE_DIR / "assets" / "plots"
-EXCEL_PATH = TRADING_DIR / "results" / "strategy_results.xlsx"
 HTML_PATH = WEBSITE_DIR / "project-quant-trading.html"
 
 
@@ -35,8 +34,7 @@ def run_strategies():
     runner = StrategyRunner(data_path=str(TRADING_DIR / "data" / "AUFI_WI.parquet"),
                             output_dir=str(TRADING_DIR / "results"), fee_bps=3)
     results = runner.run_all_strategies()
-    if results:
-        runner.save_to_excel()
+    runner.save_to_excel()
 
     # 统计卡元数据：策略数与实际回测年限（日历天/365.25）
     dates = next(iter(runner.strategy_data.values()))["processed_data"]["Date"]
@@ -104,26 +102,21 @@ def update_img_dimensions(sizes):
     print(f"图片尺寸已核对: {HTML_PATH.name}")
 
 
-def _parse_pct(val):
-    """兼容 Excel 回读的 '12.33%' 字符串与数值类型，统一转 float（空值→NaN）。"""
-    if pd.isna(val):
-        return float("nan")
-    s = str(val).strip().rstrip("%")
-    return float("nan") if s in ("", "nan") else float(s)
+def _fmt_pct(v):
+    """比率列 → "12.33%"；NaN（如无交易策略的年化收益）→ 空串。"""
+    return f"{v:.2%}" if pd.notna(v) else ""
 
 
-def update_html(meta):
-    """读取 Excel 结果，更新 projects.html 中的数据"""
-    df = pd.read_excel(EXCEL_PATH, sheet_name="Summary")
-    # 数值化排序，避免字符串排序错误（如 "99%" 排在 "150%" 前面）
-    df["_return_num"] = df["cumulative_return"].map(_parse_pct)
-    df = df.sort_values("_return_num", ascending=False).reset_index(drop=True)
+def update_html(results, meta):
+    """用原始回测结果（runner.results 的数值 dict）更新页面数据"""
+    # 数值排序，最高收益排第一（Excel 里已是格式化字符串，这里直接用原始数值）
+    results = sorted(results, key=lambda r: r["cumulative_return"], reverse=True)
 
     with open(HTML_PATH, "r", encoding="utf-8") as f:
         html = f.read()
 
-    # 1. 更新最高累积收益统计
-    best_return = round(_parse_pct(df.iloc[0]["cumulative_return"]))
+    # 1. 更新最高累积收益统计（先按展示口径保留两位小数，再取整，与表格显示一致）
+    best_return = round(round((results[0]["cumulative_return"] - 1) * 100, 2))
     html, n_stat = re.subn(
         r'(<div class="stat-number">)-?\d+(<span style="font-size:1\.2rem">%</span>)',
         rf"\g<1>{best_return}\g<2>",
@@ -158,40 +151,33 @@ def update_html(meta):
     if n_year != 1:
         raise ValueError(f"回测周期卡预期匹配 1 处，实际 {n_year} 处")
 
-    # 2. 更新性能表
-    # 类型判断：正收益用 highlight，负收益用 negative
-    def cell_class(val):
-        """兼容 Excel 回读的两种类型：字符串（'12.33%'）与数值（0.81/NaN）。"""
-        if pd.isna(val):
+    # 2. 更新性能表（原始数值在出口处一次性格式化，不再经过 Excel 字符串往返）
+    def cell_class(v):
+        """正收益用 highlight，负收益用 negative，零/NaN 无样式。"""
+        if pd.isna(v) or v == 0:
             return ""
-        s = str(val).strip().rstrip("%")
-        if s in ("", "nan"):
-            return ""
-        v = float(s)
-        return "highlight" if v > 0 else ("negative" if v < 0 else "")
+        return "highlight" if v > 0 else "negative"
 
-    def fmt_td(val):
-        """空值（无交易策略的 Sharpe 等）渲染为空单元格，不显示 nan。"""
-        if pd.isna(val) or str(val).strip() in ("", "nan"):
-            return "<td></td>"
-        cls = cell_class(val)
-        return f'<td class="{cls}">{val}</td>' if cls else f"<td>{val}</td>"
+    def td(v, text):
+        cls = cell_class(v)
+        return f'<td class="{cls}">{text}</td>' if cls else f"<td>{text}</td>"
 
     rows_html = ""
-    for _, row in df.iterrows():
+    for row in results:
         name = row.get("display_name", row["strategy_name"])
-        trades = int(row["total_trades"])
+        sharpe = row["sharpe_ratio"]
+        sharpe_text = f"{sharpe:.2f}" if pd.notna(sharpe) else ""
 
         rows_html += f"""            <tr>
               <td><strong>{name}</strong></td>
-              {fmt_td(row["cumulative_return"])}
-              {fmt_td(row["annualized_return"])}
-              {fmt_td(row["annualized_volatility"])}
-              {fmt_td(row["sharpe_ratio"])}
-              {fmt_td(row["max_drawdown"])}
-              <td>{trades}</td>
-              {fmt_td(row["win_rate"])}
-              {fmt_td(row["avg_trade_return"])}
+              {td(row["cumulative_return"] - 1, _fmt_pct(row["cumulative_return"] - 1))}
+              {td(row["annualized_return"], _fmt_pct(row["annualized_return"]))}
+              {td(row["annualized_volatility"], _fmt_pct(row["annualized_volatility"]))}
+              {td(sharpe, sharpe_text)}
+              {td(row["max_drawdown"], _fmt_pct(row["max_drawdown"]))}
+              <td>{int(row["total_trades"])}</td>
+              {td(row["win_rate"], _fmt_pct(row["win_rate"]))}
+              {td(row["avg_trade_return"], _fmt_pct(row["avg_trade_return"]))}
             </tr>
 """
 
@@ -208,9 +194,9 @@ def update_html(meta):
         )
 
     # 3. 更新图片说明中的累积收益；无旧收益文本时也要补上
-    for _, row in df.iterrows():
+    for row in results:
         name = row["strategy_name"]
-        cum = row["cumulative_return"]
+        cum = f"{row['cumulative_return'] - 1:.2%}"
         display = row.get("display_name", name)
         pattern = (
             r'(<div class="gallery-caption">)'
@@ -249,9 +235,6 @@ def main():
     # 1. 运行策略
     print("\n[1/3] 运行策略...")
     results, meta = run_strategies()
-    if not results:
-        print("没有成功运行的策略，退出")
-        return
 
     # 2. 复制图表（含 webp）
     print("\n[2/3] 复制图表到网站...")
@@ -259,7 +242,7 @@ def main():
 
     # 3. 更新网站数据
     print("\n[3/3] 更新网站数据...")
-    update_html(meta)
+    update_html(results, meta)
     update_img_dimensions(sizes)
 
     print("\n" + "=" * 60)

@@ -11,6 +11,21 @@ from visualization import StrategyVisualizer
 
 _BASE_DIR = Path(__file__).resolve().parent
 
+# 批量回测的策略清单（单一数据源；demo_all_strategies.py 也从这里导入）。
+# (策略类型, 结果命名, 参数, 展示名)
+STRATEGIES = [
+    ("EWMA", "EWMA_30", {"span": 30}, "EWMA Long-Short"),
+    ("EWMA_LONG_ONLY", "EWMA_LONG_ONLY_30", {"span": 30}, "EWMA Long-Only"),
+    ("MACD", "MACD_12_26_9", {"fast_period": 12, "slow_period": 26, "signal_period": 9}, "MACD"),
+    ("DONCHIAN", "DONCHIAN_20", {"channel_period": 20}, "Donchian (20)"),
+    ("DONCHIAN", "DONCHIAN_50", {"channel_period": 50}, "Donchian (50)"),
+    ("BOLLINGER", "BOLLINGER_20_2", {"bb_period": 20, "bb_std": 2.0}, "Bollinger (20, 2.0)"),
+    ("BOLLINGER", "BOLLINGER_20_1.5", {"bb_period": 20, "bb_std": 1.5}, "Bollinger (20, 1.5)"),
+    ("RSI", "RSI_14_30_70", {"rsi_period": 14, "oversold_threshold": 30, "overbought_threshold": 70}, "RSI"),
+    ("TMA", "TMA_5_20_60", {"tma_fast": 5, "tma_medium": 20, "tma_slow": 60}, "TMA (5/20/60)"),
+    ("TMA", "TMA_10_30_90", {"tma_fast": 10, "tma_medium": 30, "tma_slow": 90}, "TMA (10/30/90)"),
+]
+
 
 class StrategyRunner:
     """运行所有策略并保存结果"""
@@ -64,9 +79,6 @@ class StrategyRunner:
         backtester = BacktestEngine(strategy, fee_bps=self.fee_bps)
         backtester.run_backtest()
         trade_df = backtester.generate_trading_records()
-
-        if strategy.processed_data is None:
-            raise RuntimeError(f"策略 {strategy_name} 没有生成处理数据")
 
         cumulative_return = strategy.processed_data["CumulativeReturn"][-1]
         if not np.isfinite(cumulative_return):
@@ -188,20 +200,7 @@ class StrategyRunner:
         print("=" * 60)
 
         data_loader = self.load_data()
-        strategies = [
-            ("EWMA", "EWMA_30", {"span": 30}, "EWMA Long-Short"),
-            ("EWMA_LONG_ONLY", "EWMA_LONG_ONLY_30", {"span": 30}, "EWMA Long-Only"),
-            ("MACD", "MACD_12_26_9", {"fast_period": 12, "slow_period": 26, "signal_period": 9}, "MACD"),
-            ("DONCHIAN", "DONCHIAN_20", {"channel_period": 20}, "Donchian (20)"),
-            ("DONCHIAN", "DONCHIAN_50", {"channel_period": 50}, "Donchian (50)"),
-            ("BOLLINGER", "BOLLINGER_20_2", {"bb_period": 20, "bb_std": 2.0}, "Bollinger (20, 2.0)"),
-            ("BOLLINGER", "BOLLINGER_20_1.5", {"bb_period": 20, "bb_std": 1.5}, "Bollinger (20, 1.5)"),
-            ("RSI", "RSI_14_30_70", {"rsi_period": 14, "oversold_threshold": 30, "overbought_threshold": 70}, "RSI"),
-            ("TMA", "TMA_5_20_60", {"tma_fast": 5, "tma_medium": 20, "tma_slow": 60}, "TMA (5/20/60)"),
-            ("TMA", "TMA_10_30_90", {"tma_fast": 10, "tma_medium": 30, "tma_slow": 90}, "TMA (10/30/90)"),
-        ]
-
-        for strategy_type, strategy_name, params, display_name in strategies:
+        for strategy_type, strategy_name, params, display_name in STRATEGIES:
             try:
                 result = self.run_strategy(
                     data_loader,
@@ -210,8 +209,6 @@ class StrategyRunner:
                     display_name=display_name,
                     **params,
                 )
-                if result is None:
-                    raise RuntimeError(f"策略 {strategy_name} 没有返回结果")
                 self.results.append(result)
                 self.create_visualization(strategy_name, data_loader)
             except Exception as exc:
@@ -229,12 +226,8 @@ class StrategyRunner:
                 for item in self.failures
             )
             raise RuntimeError(
-                f"{len(self.failures)}/{len(strategies)} 个策略运行失败；"
+                f"{len(self.failures)}/{len(STRATEGIES)} 个策略运行失败；"
                 f"未生成可发布的完整结果。{details}"
-            )
-        if len(self.results) != len(strategies):
-            raise RuntimeError(
-                f"策略结果数量异常: {len(self.results)}/{len(strategies)}"
             )
 
         return self.results
@@ -321,35 +314,14 @@ class StrategyRunner:
                 last = pd.Timestamp(dates[-1]).date()
                 data_range_text = f"{first} ~ {last}"
 
-        finite_cumulative = [
-            result for result in self.results
-            if np.isfinite(result['cumulative_return'])
-        ]
-        best_cumulative = max(
-            finite_cumulative,
-            key=lambda result: result['cumulative_return'],
-            default=None,
-        )
-        best_cumulative_text = (
-            f"{best_cumulative['strategy_name']} "
-            f"({best_cumulative['cumulative_return'] - 1:.2%})"
-            if best_cumulative is not None else "N/A"
-        )
-
-        finite_annualized = [
-            result for result in self.results
-            if np.isfinite(result['annualized_return'])
-        ]
-        best_annualized = max(
-            finite_annualized,
-            key=lambda result: result['annualized_return'],
-            default=None,
-        )
-        best_annualized_text = (
-            f"{best_annualized['strategy_name']} "
-            f"({best_annualized['annualized_return']:.2%})"
-            if best_annualized is not None else "N/A"
-        )
+        def _best_text(key, fmt):
+            """有限值中取 key 最大者拼成 "名称 (值)"；无可用结果时 N/A。"""
+            best = max(
+                (r for r in self.results if np.isfinite(r[key])),
+                key=lambda r: r[key],
+                default=None,
+            )
+            return f"{best['strategy_name']} ({fmt(best[key])})" if best else "N/A"
 
         fee_note = (
             f"（收益已扣除单边 {self.fee_bps:g} bps 交易成本）"
@@ -384,8 +356,8 @@ class StrategyRunner:
             <div class="summary">
                 <h2>报告摘要</h2>
                 <p>• 测试策略总数: {len(self.results)}</p>
-                <p>• 最佳累计收益率: {best_cumulative_text}</p>
-                <p>• 最佳年化收益率: {best_annualized_text}</p>
+                <p>• 最佳累计收益率: {_best_text('cumulative_return', lambda v: f'{v - 1:.2%}')}</p>
+                <p>• 最佳年化收益率: {_best_text('annualized_return', lambda v: f'{v:.2%}')}</p>
                 <p>• 图表保存位置: {plot_dir_display}</p>
             </div>
         </body>
@@ -409,7 +381,7 @@ def main():
         output_dir=_BASE_DIR / "results"
     )
 
-    # 运行所有策略（最近5年）
+    # 运行所有策略（2020-01-01 起至最新交易日）
     results = runner.run_all_strategies()
 
     if results:

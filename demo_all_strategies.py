@@ -4,33 +4,20 @@ from data_handler import DataHandler
 from strategy_core import TradingStrategyCore
 from backtest_engine import BacktestEngine
 from visualization import StrategyVisualizer
+from run_all_strategies import STRATEGIES
 
 _BASE_DIR = Path(__file__).resolve().parent
 _DATA_PATH = _BASE_DIR / "data" / "AUFI_WI.parquet"
 
 def demo_all_strategies():
-    """演示：跑全部策略并排名（无断言，非 CI 测试；测试在 test_regressions.py）"""
+    """演示：跑全部策略并排名（失败时抛异常；正式测试在 test_regressions.py）"""
 
     # 初始化数据处理（自动取最新交易日）
     data_loader = DataHandler.from_parquet(_DATA_PATH, start_date=datetime(2020, 1, 1))
 
-    strategies_to_test = [
-        # (策略类型, 参数, 描述)
-        ('EWMA', {'span': 30}, "EWMA策略(允许做空)"),
-        ('EWMA_LONG_ONLY', {'span': 30}, "EWMA策略(仅做多)"),
-        ('MACD', {'fast_period': 12, 'slow_period': 26, 'signal_period': 9}, "MACD策略"),
-        ('DONCHIAN', {'channel_period': 20}, "唐奇安通道策略(20日)"),
-        ('DONCHIAN', {'channel_period': 50}, "唐奇安通道策略(50日)"),
-        ('BOLLINGER', {'bb_period': 20, 'bb_std': 2.0}, "布林带策略(2.0σ)"),
-        ('BOLLINGER', {'bb_period': 20, 'bb_std': 1.5}, "布林带策略(1.5σ)"),
-        ('RSI', {'rsi_period': 14, 'oversold_threshold': 30, 'overbought_threshold': 70}, "RSI均值回归策略"),
-        ('TMA', {'tma_fast': 5, 'tma_medium': 20, 'tma_slow': 60}, "三均线趋势策略(5/20/60)"),
-        ('TMA', {'tma_fast': 10, 'tma_medium': 30, 'tma_slow': 90}, "三均线趋势策略(10/30/90)"),
-    ]
-
     results = []
 
-    for strategy_type, params, description in strategies_to_test:
+    for strategy_type, strategy_name, params, description in STRATEGIES:
         print(f"\n{'='*60}")
         print(f"测试策略: {description}")
         print(f"策略类型: {strategy_type}")
