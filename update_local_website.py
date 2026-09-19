@@ -123,7 +123,7 @@ def update_img_dimensions(sizes):
             patched += n
     if patched != len(sizes):
         print(f"提示: 图表尺寸更新 {patched}/{len(sizes)} 张（其余为页面暂无或尺寸未变化）")
-    HTML_PATH.write_text(html, encoding="utf-8")
+    HTML_PATH.write_text(html, encoding="utf-8", newline="\n")
     print(f"图片尺寸已核对: {HTML_PATH.name}")
 
 
@@ -246,7 +246,7 @@ def update_html(results, meta):
         if replacements != 1:
             raise ValueError(f"未找到网站图表说明: {display}")
 
-    with open(HTML_PATH, "w", encoding="utf-8") as f:
+    with open(HTML_PATH, "w", encoding="utf-8", newline="\n") as f:
         f.write(html)
     print(f"已更新 {HTML_PATH}")
 
