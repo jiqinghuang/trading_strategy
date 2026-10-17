@@ -13,7 +13,7 @@ Excel → Parquet 数据管道
 
 import argparse
 import ast
-import msvcrt
+import math
 import os
 from pathlib import Path
 import re
@@ -21,7 +21,6 @@ import sys
 from datetime import datetime, timedelta
 
 import polars as pl
-import win32com.client
 
 # ---------- 配置 ----------
 
@@ -103,6 +102,8 @@ _FALLBACK_SYMBOLS = [
 ]
 
 FIELD_NAMES = ["open", "high", "low", "close", "settle", "volume", "oi", "amt"]
+# DataHandler 要求这些列非空且为正；任一缺失的行无法回测，直接丢弃
+PRICE_FIELDS = ("open", "high", "low", "close", "settle")
 FIELD_STR = ",".join(FIELD_NAMES)
 DATE_FORMAT = "%Y-%m-%d"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -207,6 +208,7 @@ def read_data_range(ws):
         return None
 
     rows = []
+    dropped = 0
     for row in raw:
         if row[0] is None or len(row) < 9:
             continue
@@ -220,17 +222,24 @@ def read_data_range(ws):
         vals = {}
         for i, name in enumerate(FIELD_NAMES):
             v = row[i + 1]
-            if v is None:
-                vals[name] = None
-            else:
-                try:
-                    vals[name] = float(v)
-                except (ValueError, TypeError):
-                    # Wind WSD 可能返回 '#N/A'、'#ERROR'、'Err'、'NA' 等错误字符串
-                    # （停牌、非交易日、数据缺口）；视为缺失而非让整个品种失败
-                    vals[name] = None
+            try:
+                number = float(v)
+            except (ValueError, TypeError):
+                # Wind WSD 可能返回 '#N/A'、'#ERROR'、'Err'、'NA' 等错误字符串
+                # （停牌、非交易日、数据缺口）；视为缺失而非让整个品种失败
+                number = None
+            # Excel/Wind 也可能给出 float('nan')：它不是 null，会被原样写进
+            # parquet，随后 DataHandler 在"必需数值列包含缺失值"处报错。
+            if number is not None and math.isnan(number):
+                number = None
+            vals[name] = number
+        if any(vals[col] is None for col in PRICE_FIELDS):
+            dropped += 1
+            continue
         rows.append({"date": date_str, **vals})
 
+    if dropped:
+        print(f"  [警告] {dropped} 行价格字段缺失，已丢弃")
     if not rows:
         return None
 
@@ -274,6 +283,7 @@ class QuitPipeline(Exception):
 
 def wait_key():
     """阻塞等待按键，回车='read' ESC='skip' Q='quit'"""
+    import msvcrt
     while True:
         k = msvcrt.getch()
         if k == b"\r":
@@ -288,6 +298,8 @@ def wait_key():
 
 
 def main():
+    import win32com.client
+
     pl.Config().set_tbl_cols(-1).set_tbl_width_chars(200)
     parser = argparse.ArgumentParser(description="Excel → Parquet 数据管道")
     parser.add_argument(
