@@ -30,6 +30,7 @@ desktop.ini
 # Temporary files
 *.tmp
 *.bak
+_test_excel_output/
 
 # Data and results
 # data/ and most of results/ are large binaries (Wind parquet, plots, xlsx) — keep out of git.

@@ -1,13 +1,15 @@
 # 核心回测
-numpy
-pandas
-polars
-matplotlib
-openpyxl
-pyarrow
+# 说明：以下版本与本地 Python 3.14 环境一致（2026-10 实测）。CI 用 Python 3.12，
+# 若某个版本在 3.12 上取不到 wheel，把它放宽成 >= 该版本即可。
+numpy==2.4.4
+pandas==3.0.1
+polars==1.39.3
+matplotlib==3.10.8
+openpyxl==3.1.5
+pyarrow==23.0.1
 
 # Wind 数据获取（excel_to_parquet.py，仅 Windows 生效）
-pywin32 ; sys_platform == "win32"
+pywin32==311 ; sys_platform == "win32"
 
 # 网站同步（update_local_website.py 的 webp 转换与图片尺寸读取）
-pillow
+pillow==12.1.1

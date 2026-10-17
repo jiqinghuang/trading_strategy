@@ -1,7 +1,7 @@
 # 量化交易策略系统
 
 > 项目路径: `c:\Users\Jiqing\Desktop\repo\trading_strategy`
-> 最后更新: 2026-09-18
+> 最后更新: 2026-10-17（行情数据截至 2026-10-16）
 
 ---
 
@@ -92,7 +92,7 @@ trading_strategy/
 | 配置项 | 说明 |
 |--------|------|
 | `DATA_DIR` | 数据输出目录 (`./data`) |
-| `SYMBOLS` | 68 个品种代码列表 (商品期货指数 + 上海金交所 T+D) |
+| `SYMBOLS` | 69 个品种代码列表 (商品期货指数 + 上海金交所 T+D)，以 `指数代码编号.txt` 为准 |
 | `FIELD_NAMES` | 获取字段: `open`, `high`, `low`, `close`, `settle`, `volume`, `oi`, `amt` |
 | `DEFAULT_START_DATE` | 默认起始日期 `1990-01-01` |
 
@@ -103,7 +103,7 @@ trading_strategy/
 | `get_parquet_path(symbol)` | 将品种代码转换为安全的文件名 |
 | `get_last_date(symbol)` | 查询已有 Parquet 文件的最大日期，用于增量更新 |
 | `build_workbook(excel, symbol, start, end)` | 创建 Excel Workbook，写入 WSD 公式 |
-| `read_data_range(ws)` | 从 Excel 读取 A7:I{last_row} 的溢出数据，过滤非日期行 |
+| `read_data_range(ws)` | 从 Excel 读取 A7:I{last_row} 的溢出数据，过滤非日期行；`#N/A`/`Err`/`NaN` 一律视为缺失，**价格字段缺失的整行丢弃并打印丢弃数**（这类行 `DataHandler` 会拒绝） |
 | `merge_and_save(symbol, new_df, existing)` | 合并新旧数据，按日期去重后保存 |
 | `main()` | CLI 入口，支持 `--end`, `--full`, `-s/--symbol` 参数 |
 
@@ -180,11 +180,28 @@ python excel_to_parquet.py --end 20260722 -s AU(T+D).SGE  # 单品种更新
 | 方法 | 职责 |
 |------|------|
 | `generate_signals()` | 策略入口，根据 `strategy_type` 动态分发到对应方法 |
+| `_warmup_bars()` | 指标稳定所需的最少 bar 数；预热期内不出信号（见下） |
+| `_apply_warmup(trading_signal)` | 把预热期内的信号清零；所有策略在生成持仓前统一调用 |
 | `_generate_position_from_signals(trading_signal, allow_short)` | 将离散信号转换为连续持仓序列 |
 | `_create_processed_data(...)` | 组装标准格式的 `processed_data` 字典 |
 | `_calculate_ema(prices, period)` | 指数移动平均计算 |
 | `_calculate_rsi(prices, period)` | RSI 指标计算 |
 | `_prev(arr, fill)` | 数组移位，获取前一期值 |
+
+**指标预热期（2026-10 起）:** EMA 以首个价格冷启动、滚动通道/标准差在开头用扩张窗口，
+因此前 `warmup` 根 bar 的"穿越/突破"不代表有效信号（第 2 根 bar 不可能构成 50 日通道突破）。
+各策略在生成信号后统一调用 `_apply_warmup()` 把预热期清零：
+
+| 策略 | warmup |
+|------|--------|
+| `EWMA` / `EWMA_LONG_ONLY` | `span` |
+| `MACD` | `slow_period + signal_period` |
+| `DONCHIAN` | `channel_period` |
+| `BOLLINGER` | `bb_period` |
+| `RSI` | `rsi_period` |
+| `TMA` | `tma_slow` |
+
+回归测试 `test_no_signal_or_position_during_indicator_warmup` 会对全部 10 组策略断言预热期内无信号、无仓位。
 
 **支持的策略:**
 
@@ -246,6 +263,9 @@ cumulative_returns = cumprod(1 + strategy_returns)
 | `plot_positions()` | 持仓状态散点图 |
 | `plot_results()` | 依次调用以上三个方法 |
 
+> `Bollinger_Bandwidth` 量级约 0.01（价格 ~500），画在价格主轴等于一条贴底直线，因此不参与绘图，
+> 数据仍保留在 `processed_data` 中。
+
 ---
 
 #### `run_all_strategies.py` — 批量策略运行器
@@ -261,7 +281,7 @@ cumulative_returns = cumprod(1 + strategy_returns)
 | `create_visualization(...)` | 生成三合一图表并保存为 PNG |
 | `run_all_strategies()` | 批量运行预定义策略列表 |
 | `save_to_excel()` | 保存汇总结果与详细交易记录到 Excel |
-| `create_html_report(df)` | 生成 HTML 格式报告 |
+| `create_html_report(df)` | 生成 HTML 格式报告（**不含运行时间戳**，给定数据即确定，避免每次运行都产生无意义 diff） |
 
 **输出绩效指标:**
 - 累计收益率 (`cumulative_return`)
@@ -274,8 +294,10 @@ cumulative_returns = cumprod(1 + strategy_returns)
 - 平均交易收益 (`avg_trade_return`)
 - 交易成本 (`fee_bps`)
 
-`StrategyRunner(data_path, output_dir, fee_bps=...)` 支持传入单边成本（万分之一），
-`fee_bps>0` 时上述收益类指标均为扣除成本后的净值。
+`StrategyRunner(data_path, output_dir, fee_bps=...)` 支持传入单边成本（万分之一）。
+**口径说明（2026-10 起明确）：** 累计收益、年化收益、年化波动率、Sharpe、最大回撤均为
+**扣除成本后的净值**；而 `win_rate` 与 `avg_trade_return` 取自 `get_trades()` 的**毛收益**
+（未摊入费用），因为逐笔费用需要按实际换手分摊。网站性能表的 caption 只声明了前一组为净值。
 
 ---
 
@@ -285,7 +307,7 @@ cumulative_returns = cumprod(1 + strategy_returns)
 
 | 函数 | 说明 |
 |------|------|
-| `test_all_strategies()` | 遍历运行所有策略，打印累计收益与交易次数，按收益排名 |
+| `demo_all_strategies()` | 遍历运行所有策略，打印累计收益与交易次数，按收益排名（不计交易成本） |
 | `visualize_strategy(strategy_type, **kwargs)` | 可视化单个策略结果 |
 
 ---
@@ -552,6 +574,17 @@ def _generate_my_strategy_signals(self):
 | **布林带用样本标准差** | ddof=1，与 pandas/TA-Lib 惯例一致（2026-09 起） |
 | **Excel 作为计算层** | 利用 Wind Excel 插件的 WSD 公式能力，不依赖 Wind Python API |
 | **Parquet 作为存储格式** | 相比 CSV 具有更好的压缩率与读写性能，支持增量更新 |
+| **指标预热期不出信号** | 前 `warmup` 根 bar 的指标不完整（EMA 冷启动、滚动窗口扩张），信号与仓位一律置 0，避免用 1 根 bar 的"50 日通道"开仓（2026-10 起） |
+
+**口径变更记录（旧数字不可直接对比）:**
+
+| 日期 | commit | 变更 | 影响 |
+|------|--------|------|------|
+| 2026-05-07 | `419871c` | 年化收益 `(1+cum)^(1/y)−1` → `cum^(1/y)−1`（cum 本是权益乘数）；数据源换为 AUFI_WI | 全部年化数字 |
+| 2026-06-26 | `c4fa457` | `total_trades` 从"buy+sell 动作数"改为"配对往返笔数" | 交易次数 |
+| 2026-08-25 | `e844d58` | 成交价 `(open+close)/2` → `open`（T+1 开盘成交） | **全部历史绩效重算** |
+| 2026-09-18 | `4e37475` | 布林带标准差 `ddof=0` → `ddof=1` | 布林带信号 |
+| 2026-10-17 | 本次 | 屏蔽指标预热期信号（`_warmup_bars` / `_apply_warmup`） | 10 组策略的累计收益均变，头号数字 175% → 138% |
 
 ---
 
@@ -561,6 +594,9 @@ def _generate_my_strategy_signals(self):
 2. **中文环境**: 可视化模块已配置 `SimHei` 字体支持中文标签
 3. **日期越界处理**: `DataHandler.preprocess_data()` 会自动将超出数据实际范围的日期裁剪为 `None`
 4. **品种代码安全转换**: `excel_to_parquet.py` 使用正则替换将品种代码中的特殊字符转为下划线生成文件名
+5. **历史数据里的 NaN**: 2026-10 之前 `read_data_range()` 会把 Wind 返回的 `float('nan')` 原样写入 parquet
+   （已知 `LGFI_WI`/`PRFI_WI`/`PSFI_WI` 各有少量行）。增量更新不会重写这些老行，需要重新抓取该品种
+   或手动清理，否则 `DataHandler` 会在"必需数值列包含缺失值"处报错。
 
 ---
 
