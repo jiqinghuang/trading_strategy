@@ -102,12 +102,11 @@ def cleanup_stale_plots():
     return removed
 
 
-def update_img_dimensions(sizes):
+def update_img_dimensions(html, sizes, write=True):
     """按实际 PNG 尺寸更新网站 <img> 的 width/height，避免图变形或预留错位。
     最佳努力：找不到对应图或 Pillow 不可用时警告并跳过，不阻断同步。"""
     if Image is None or not sizes:
-        return
-    html = HTML_PATH.read_text(encoding="utf-8")
+        return html
     patched = 0
     for name, (width, height) in sizes.items():
         if width is None:
@@ -123,8 +122,10 @@ def update_img_dimensions(sizes):
             patched += n
     if patched != len(sizes):
         print(f"提示: 图表尺寸更新 {patched}/{len(sizes)} 张（其余为页面暂无或尺寸未变化）")
-    HTML_PATH.write_text(html, encoding="utf-8", newline="\n")
-    print(f"图片尺寸已核对: {HTML_PATH.name}")
+    if write:
+        HTML_PATH.write_text(html, encoding="utf-8", newline="\n")
+        print(f"图片尺寸已核对: {HTML_PATH.name}")
+    return html
 
 
 def _fmt_pct(v):
@@ -132,8 +133,11 @@ def _fmt_pct(v):
     return f"{v:.2%}" if pd.notna(v) else ""
 
 
-def update_html(results, meta):
-    """用原始回测结果（runner.results 的数值 dict）更新页面数据"""
+def update_html(results, meta, write=True):
+    """用原始回测结果（runner.results 的数值 dict）更新页面数据。
+
+    write=False 时只返回替换后的 HTML，不落盘（供两阶段写入使用）。
+    """
     # 数值排序，最高收益排第一（Excel 里已是格式化字符串，这里直接用原始数值）
     results = sorted(results, key=lambda r: r["cumulative_return"], reverse=True)
 
@@ -143,7 +147,8 @@ def update_html(results, meta):
     # 1. 更新最高累积收益统计（先按展示口径保留两位小数，再取整，与表格显示一致）
     best_return = round(round((results[0]["cumulative_return"] - 1) * 100, 2))
     html, n_stat = re.subn(
-        r'(<div class="stat-number">)-?\d+(<span style="font-size:1\.2rem">%</span>)',
+        r'(<div class="stat-number">)-?\d+(<span style="font-size:1\.2rem">%</span></div>\s*'
+        r'<div class="stat-label"><span data-lang="cn">最高累积收益</span>)',
         rf"\g<1>{best_return}\g<2>",
         html,
         count=1,
@@ -246,9 +251,25 @@ def update_html(results, meta):
         if replacements != 1:
             raise ValueError(f"未找到网站图表说明: {display}")
 
-    with open(HTML_PATH, "w", encoding="utf-8", newline="\n") as f:
-        f.write(html)
-    print(f"已更新 {HTML_PATH}")
+    if write:
+        with open(HTML_PATH, "w", encoding="utf-8", newline="\n") as f:
+            f.write(html)
+        print(f"已更新 {HTML_PATH}")
+    return html
+
+
+def _png_sizes(plot_dir):
+    """从源图读取像素尺寸（复制前即可用，便于两阶段写入）。"""
+    sizes = {}
+    if Image is None:
+        return sizes
+    for f in plot_dir.glob("*.png"):
+        try:
+            with Image.open(f) as img:
+                sizes[f.stem] = img.size
+        except OSError:
+            sizes[f.stem] = None
+    return sizes
 
 
 def main():
@@ -261,15 +282,17 @@ def main():
     print("\n[1/3] 运行策略...")
     results, meta = run_strategies()
 
-    # 2. 复制图表（含 webp），并清理已不在策略清单里的旧图
-    print("\n[2/3] 复制图表到网站...")
-    sizes = copy_plots()
-    cleanup_stale_plots()
+    # 2. 先在内存里生成页面（正则会在此抛错；失败则网站一个字节都不动）
+    print("\n[2/3] 生成网站页面（内存中，未落盘）...")
+    html = update_html(results, meta, write=False)
+    html = update_img_dimensions(html, _png_sizes(PLOTS_SRC), write=False)
 
-    # 3. 更新网站数据
-    print("\n[3/3] 更新网站数据...")
-    update_html(results, meta)
-    update_img_dimensions(sizes)
+    # 3. 全部校验通过后再动网站：复制图表 → 写 HTML
+    print("\n[3/3] 复制图表并落盘...")
+    copy_plots()
+    cleanup_stale_plots()
+    HTML_PATH.write_text(html, encoding="utf-8", newline="\n")
+    print(f"已更新 {HTML_PATH}")
 
     print("\n" + "=" * 60)
     print("全部完成! 两个文件夹已同步更新。")

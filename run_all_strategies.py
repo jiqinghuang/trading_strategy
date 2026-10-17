@@ -347,8 +347,7 @@ class StrategyRunner:
         </head>
         <body>
             <h1>策略回测报告</h1>
-            <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p>数据范围: {data_range_text}{fee_note}</p>
+            <p>数据范围: {data_range_text} · fee_bps={self.fee_bps:g}{fee_note}</p>
 
             <h2>策略性能汇总</h2>
             {df.to_html(index=False, classes='dataframe')}

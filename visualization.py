@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 _NON_INDICATOR_KEYS = frozenset({
     'Date', 'Close', 'ExecutionPrice', 'TradingSignal',
     'Position', 'ActionStates', 'Return', 'StrategyReturn', 'CumulativeReturn',
+    # 带宽量级 ~0.01（价格 ~500），画在价格主轴等于一条贴底直线
+    'Bollinger_Bandwidth',
 })
 
 
