@@ -12,7 +12,7 @@ import polars as pl
 
 from backtest_engine import BacktestEngine
 from data_handler import DataHandler
-from run_all_strategies import StrategyRunner
+from run_all_strategies import STRATEGIES, StrategyRunner
 from strategy_core import TradingStrategyCore
 
 
@@ -59,6 +59,24 @@ class RegressionTests(unittest.TestCase):
         self.assertAlmostEqual(rising[-1], 100.0)
         self.assertAlmostEqual(falling[-1], 0.0)
         self.assertAlmostEqual(flat[-1], 50.0)
+
+    def test_no_signal_or_position_during_indicator_warmup(self):
+        """预热期内不得出信号/建仓：EMA 冷启动与扩张窗口会制造假突破。"""
+        rng = np.random.default_rng(20261016)
+        n = 400
+        close = np.maximum(1.0, 100.0 + np.cumsum(rng.normal(0.0, 1.0, n)))
+        handler = self.make_handler(close)
+
+        for strategy_type, name, params, _display in STRATEGIES:
+            with self.subTest(strategy=name):
+                strategy = TradingStrategyCore(handler, strategy_type, **params)
+                strategy.generate_signals()
+                warm = strategy._warmup_bars()
+                self.assertGreater(warm, 0)
+                signal = strategy.processed_data["TradingSignal"]
+                position = strategy.processed_data["Position"]
+                self.assertTrue(np.all(signal[:warm] == 0), f"{name}: 预热期内出现信号")
+                self.assertTrue(np.all(position[:warm] == 0), f"{name}: 预热期内建立仓位")
 
     def test_execution_price_uses_next_open_and_backtest_alignment(self):
         handler = self.make_handler(

@@ -191,6 +191,32 @@ class TradingStrategyCore:
         """a 下穿 b：本期 a < b，且前期 a >= b。全策略统一的交叉定义。"""
         return (a_now < b_now) & (a_prev >= b_prev)
 
+    def _warmup_bars(self):
+        """指标稳定所需的最少 bar 数；此前不产生交易信号。
+
+        EMA 从首个价格冷启动、滚动窗口在开头用扩张窗口，因此预热期内的
+        "穿越/突破"不代表有效信号（例如第 2 根 bar 不可能构成 50 日通道突破）。
+        """
+        if self.strategy_type in ("EWMA", "EWMA_LONG_ONLY"):
+            return self.span
+        if self.strategy_type == "MACD":
+            return self.slow_period + self.signal_period
+        if self.strategy_type == "DONCHIAN":
+            return self.channel_period
+        if self.strategy_type == "BOLLINGER":
+            return self.bb_period
+        if self.strategy_type == "RSI":
+            return self.rsi_period
+        if self.strategy_type == "TMA":
+            return self.tma_slow
+        return 0
+
+    def _apply_warmup(self, trading_signal):
+        """把预热期内的信号清零，避免用不完整指标开仓。"""
+        signal = np.asarray(trading_signal, dtype=float).copy()
+        signal[: min(self._warmup_bars(), signal.size)] = 0.0
+        return signal
+
     def _generate_position_from_signals(self, trading_signal, allow_short=True):
         """根据交易信号生成持仓和行动状态
 
@@ -254,6 +280,7 @@ class TradingStrategyCore:
         trading_signal = np.zeros(len(close_prices), dtype=float)
         trading_signal[self._crossed_above(close_prices, prev_close, ewma, prev_ewma)] = 1
         trading_signal[self._crossed_below(close_prices, prev_close, ewma, prev_ewma)] = -1
+        trading_signal = self._apply_warmup(trading_signal)
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=allow_short)
         return self._create_processed_data(ewma, trading_signal, position, action_states)
 
@@ -294,6 +321,7 @@ class TradingStrategyCore:
         # MACD上穿信号线为买入，下穿为卖出
         trading_signal[self._crossed_above(macd_line, prev_macd, signal_line, prev_signal)] = 1
         trading_signal[self._crossed_below(macd_line, prev_macd, signal_line, prev_signal)] = -1
+        trading_signal = self._apply_warmup(trading_signal)
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -322,6 +350,7 @@ class TradingStrategyCore:
         # upper_band[i] >= high[i] >= close[i]，导致条件永远不成立
         trading_signal[self._crossed_above(close_prices, prev_close, prev_upper, prev_upper)] = 1
         trading_signal[self._crossed_below(close_prices, prev_close, prev_lower, prev_lower)] = -1
+        trading_signal = self._apply_warmup(trading_signal)
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -366,6 +395,7 @@ class TradingStrategyCore:
         # 价格从前一期下轨向上突破买入，从前一期上轨向下跌破卖出
         trading_signal[self._crossed_above(close_prices, prev_close, prev_lower, prev_lower)] = 1
         trading_signal[self._crossed_below(close_prices, prev_close, prev_upper, prev_upper)] = -1
+        trading_signal = self._apply_warmup(trading_signal)
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -448,6 +478,7 @@ class TradingStrategyCore:
         # RSI从超卖区回升买入，从超买区回落卖出
         trading_signal[self._crossed_above(rsi, prev_rsi, self.oversold_threshold, self.oversold_threshold)] = 1
         trading_signal[self._crossed_below(rsi, prev_rsi, self.overbought_threshold, self.overbought_threshold)] = -1
+        trading_signal = self._apply_warmup(trading_signal)
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
@@ -479,6 +510,7 @@ class TradingStrategyCore:
         trading_signal = np.zeros(len(close_prices), dtype=float)
         trading_signal[bullish_aligned & ~prev_bullish] = 1
         trading_signal[bearish_aligned & ~prev_bearish] = -1
+        trading_signal = self._apply_warmup(trading_signal)
 
         # 生成持仓和行动状态
         position, action_states = self._generate_position_from_signals(trading_signal, allow_short=True)
